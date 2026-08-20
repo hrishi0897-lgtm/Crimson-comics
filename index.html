@@ -18,11 +18,22 @@
   <!-- JSZip -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
-  <!-- Swiper.js Touch Engine (Hardware Accelerated Gestures) -->
+  <!-- Ionicons -->
+  <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
+
+  <!-- Swiper.js Touch Engine -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
 
   <style>
+    :root {
+      --clr: #0a0a0a;
+      --accent: #dc2626;
+    }
+    .oled-mode {
+      --clr: #000000;
+    }
     .swiper {
       width: 100%;
       height: 100%;
@@ -49,6 +60,109 @@
       object-fit: contain;
       user-select: none;
       -webkit-user-drag: none;
+    }
+
+    /* Magic Navigation Bar */
+    .magic-nav {
+      width: 320px;
+      height: 65px;
+      background: #141414;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border-radius: 18px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .magic-nav ul {
+      display: flex;
+      width: 280px;
+      position: relative;
+    }
+    .magic-nav ul li {
+      position: relative;
+      list-style: none;
+      width: 70px;
+      height: 65px;
+      z-index: 1;
+    }
+    .magic-nav ul li button {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      text-align: center;
+      background: none;
+      border: none;
+      outline: none;
+      cursor: pointer;
+    }
+    .magic-nav ul li button .icon {
+      position: relative;
+      display: block;
+      line-height: 65px;
+      font-size: 1.5em;
+      text-align: center;
+      transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      color: #9ca3af;
+    }
+    .magic-nav ul li.active button .icon {
+      transform: translateY(-22px);
+      color: #ffffff;
+    }
+    .magic-nav .indicator {
+      position: absolute;
+      top: -24px;
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      border: 6px solid var(--clr);
+      background: var(--clr);
+      transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: none;
+    }
+    .magic-nav .indicator::before {
+      content: "";
+      position: absolute;
+      top: 14px;
+      left: -20px;
+      width: 18px;
+      height: 18px;
+      border-top-right-radius: 18px;
+      box-shadow: 0px -8px 0 0 var(--clr);
+    }
+    .magic-nav .indicator::after {
+      content: "";
+      position: absolute;
+      top: 14px;
+      right: -20px;
+      width: 18px;
+      height: 18px;
+      border-top-left-radius: 18px;
+      box-shadow: 0px -8px 0 0 var(--clr);
+    }
+    .magic-nav .indicator span {
+      position: absolute;
+      inset: 2px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+    }
+    .magic-nav ul li:nth-child(1).active ~ .indicator {
+      transform: translateX(0px);
+    }
+    .magic-nav ul li:nth-child(2).active ~ .indicator {
+      transform: translateX(70px);
+    }
+    .magic-nav ul li:nth-child(3).active ~ .indicator {
+      transform: translateX(140px);
+    }
+    .magic-nav ul li:nth-child(4).active ~ .indicator {
+      transform: translateX(210px);
     }
   </style>
 </head>
@@ -252,7 +366,6 @@
       },
 
       async fetchChannelVault(botToken, channelId) {
-        // Attempt 1: Fetch via Pinned Chat Message
         try {
           const chatRes = await fetch(`https://api.telegram.org/bot${botToken}/getChat?chat_id=${channelId}`);
           const chatData = await chatRes.json();
@@ -274,7 +387,6 @@
           console.warn('Pinned manifest fetch error:', err);
         }
 
-        // Attempt 2: Check Local Registry Cache for file ID
         try {
           const cachedPin = JSON.parse(localStorage.getItem(MANIFEST_PIN_KEY) || 'null');
           if (cachedPin?.fileId) {
@@ -368,6 +480,14 @@
       const [searchQuery, setSearchQuery] = useState('');
 
       const activeStreakCount = useMemo(() => calculateConsecutiveStreak(streakLog), [streakLog]);
+
+      useEffect(() => {
+        if (oledPureBlack) {
+          document.documentElement.classList.add('oled-mode');
+        } else {
+          document.documentElement.classList.remove('oled-mode');
+        }
+      }, [oledPureBlack]);
 
       useEffect(() => { localStorage.setItem('crimson_user_name', userName); }, [userName]);
       useEffect(() => { localStorage.setItem('crimson_user_bio', userBio); }, [userBio]);
@@ -463,7 +583,6 @@
         });
       }, []);
 
-      // Pulls previously uploaded vault files from Channel
       const handleSyncCloud = useCallback(async (manual = false) => {
         const token = botToken.trim();
         const channel = channelId.trim();
@@ -483,7 +602,6 @@
 
             setComicsList((localList) => {
               const map = new Map();
-              // Retain local memory pages for already downloaded items
               localList.forEach(item => map.set(item.id, item));
 
               remoteVault.forEach(item => {
@@ -514,7 +632,6 @@
 
             setCloudStatusMsg(`✓ Synced ${remoteVault.length} issues from Channel Vault!`);
           } else {
-            // Local fallback if no remote pinned manifest exists yet
             const localSaved = JSON.parse(localStorage.getItem('crimson_chunked_comics') || '[]');
             if (localSaved.length > 0) {
               await pushManifestUpdate(localSaved);
@@ -560,7 +677,6 @@
         }
       };
 
-      // Auto sync on entry, refresh, and window focus
       useEffect(() => {
         if (botToken && channelId) {
           handleSyncCloud(false);
@@ -1006,6 +1122,13 @@
 
       const totalBookmarkCount = Object.values(bookmarks).reduce((acc, curr) => acc + curr.length, 0);
 
+      const navItems = [
+        { id: 'library', label: 'Library', icon: 'book-outline' },
+        { id: 'personal', label: 'Personal', icon: 'person-outline' },
+        { id: 'favorites', label: 'Saved', icon: 'bookmark-outline' },
+        { id: 'settings', label: 'Settings', icon: 'settings-outline' }
+      ];
+
       return (
         <div className={`min-h-screen ${themeBg} text-gray-100 flex flex-col font-sans select-none overflow-hidden transition-colors duration-200`}>
           
@@ -1059,7 +1182,7 @@
             </div>
           )}
 
-          <main className="flex-1 pb-20 overflow-y-auto">
+          <main className="flex-1 pb-24 overflow-y-auto">
             {!isReaderOpen ? (
               <div className="p-4 space-y-4 max-w-4xl mx-auto">
                 <div className="flex gap-2 items-center">
@@ -1718,24 +1841,27 @@
             )}
           </main>
 
+          {/* Magic Curved Indicator Navigation Bar */}
           {!isReaderOpen && (
-            <nav className={`fixed bottom-0 left-0 right-0 z-40 ${navBg} border-t px-4 py-2 flex justify-around shadow-2xl transition-colors duration-200`}>
-              {[
-                { id: 'library', label: 'Library', icon: '📚' },
-                { id: 'personal', label: 'Personal', icon: '👤' },
-                { id: 'favorites', label: 'Saved', icon: '⭐' },
-                { id: 'settings', label: 'Settings', icon: '⚙️' }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex flex-col items-center text-[10px] ${activeTab === tab.id ? 'text-red-500 font-bold' : 'text-gray-400'}`}
-                >
-                  <span className="text-base">{tab.icon}</span>
-                  <span>{tab.label}</span>
-                </button>
-              ))}
-            </nav>
+            <div className="fixed bottom-3 left-0 right-0 z-40 flex justify-center items-center pointer-events-auto">
+              <nav className="magic-nav">
+                <ul>
+                  {navItems.map((item) => (
+                    <li
+                      key={item.id}
+                      className={activeTab === item.id ? 'active' : ''}
+                    >
+                      <button onClick={() => setActiveTab(item.id)}>
+                        <span className="icon">
+                          <ion-icon name={item.icon}></ion-icon>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  <div className="indicator"><span></span></div>
+                </ul>
+              </nav>
+            </div>
           )}
         </div>
       );
