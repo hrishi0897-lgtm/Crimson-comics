@@ -59,7 +59,7 @@
     const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
     const CHUNK_SIZE = 19 * 1024 * 1024;
-    const MANIFEST_CAPTION = 'CRIMSON_MANIFEST_V1';
+    const MANIFEST_PIN_KEY = 'crimson_cloud_vault_manifest';
 
     const getTodayDateKey = () => new Date().toISOString().split('T')[0];
 
@@ -103,7 +103,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: channelId,
-            text: '⚡ <b>CrimsonComics Hardware Swiper Active!</b>',
+            text: '⚡ <b>CrimsonComics Cloud Connection Verified</b>',
             parse_mode: 'HTML'
           })
         });
@@ -222,43 +222,77 @@
         }
       },
 
-      async uploadManifest(botToken, channelId, manifestData) {
+      async uploadPinnedManifest(botToken, channelId, manifestData) {
         const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/json' });
-        return await this.uploadChunk(
+        const res = await this.uploadChunk(
           botToken,
           channelId,
           manifestBlob,
-          'crimson_cloud_vault.json',
-          MANIFEST_CAPTION
+          'crimson_vault_manifest.json',
+          `📌 <b>CrimsonComics Library Manifest</b>\nTotal Items: ${manifestData.comics?.length || 0}`
         );
+
+        if (res?.messageId) {
+          try {
+            await fetch(`https://api.telegram.org/bot${botToken}/pinChatMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: channelId,
+                message_id: res.messageId,
+                disable_notification: true
+              })
+            });
+            localStorage.setItem(MANIFEST_PIN_KEY, JSON.stringify({ messageId: res.messageId, fileId: res.fileId }));
+          } catch (pinErr) {
+            console.warn('Could not auto-pin manifest:', pinErr);
+          }
+        }
+        return res;
       },
 
-      async fetchRemoteManifest(botToken) {
+      async fetchChannelVault(botToken, channelId) {
+        // Attempt 1: Fetch via Pinned Chat Message
         try {
-          const updatesRes = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?limit=50&allowed_updates=["channel_post","message"]`);
-          const updatesData = await updatesRes.json();
-          if (!updatesData.ok || !updatesData.result) return null;
+          const chatRes = await fetch(`https://api.telegram.org/bot${botToken}/getChat?chat_id=${channelId}`);
+          const chatData = await chatRes.json();
 
-          const posts = updatesData.result
-            .map(u => u.channel_post || u.message)
-            .filter(Boolean)
-            .reverse();
-
-          for (const post of posts) {
-            if (post.caption === MANIFEST_CAPTION && post.document) {
-              const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${post.document.file_id}`);
-              const fileInfo = await fileInfoRes.json();
-              if (fileInfo.ok) {
-                const streamUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.result.file_path}`;
-                const manifestRes = await fetch(streamUrl);
-                const manifestJson = await manifestRes.json();
-                return { manifest: manifestJson, messageId: post.message_id };
+          if (chatData.ok && chatData.result?.pinned_message?.document) {
+            const pinnedDoc = chatData.result.pinned_message.document;
+            const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${pinnedDoc.file_id}`);
+            const fileInfo = await fileInfoRes.json();
+            if (fileInfo.ok) {
+              const streamUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.result.file_path}`;
+              const manifestRes = await fetch(streamUrl);
+              const manifestJson = await manifestRes.json();
+              if (manifestJson?.comics) {
+                return manifestJson;
               }
             }
           }
         } catch (err) {
-          console.warn('Manifest sync check failed:', err);
+          console.warn('Pinned manifest fetch error:', err);
         }
+
+        // Attempt 2: Check Local Registry Cache for file ID
+        try {
+          const cachedPin = JSON.parse(localStorage.getItem(MANIFEST_PIN_KEY) || 'null');
+          if (cachedPin?.fileId) {
+            const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${cachedPin.fileId}`);
+            const fileInfo = await fileInfoRes.json();
+            if (fileInfo.ok) {
+              const streamUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.result.file_path}`;
+              const manifestRes = await fetch(streamUrl);
+              const manifestJson = await manifestRes.json();
+              if (manifestJson?.comics) {
+                return manifestJson;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Cached manifest retrieval error:', err);
+        }
+
         return null;
       }
     };
@@ -429,56 +463,72 @@
         });
       }, []);
 
+      // Pulls previously uploaded vault files from Channel
       const handleSyncCloud = useCallback(async (manual = false) => {
         const token = botToken.trim();
         const channel = channelId.trim();
         if (!token || !channel) {
-          if (manual) alert('Please provide a Bot Token and Channel ID in Settings.');
+          if (manual) alert('Please configure Telegram Bot Token and Channel ID in Settings.');
           return;
         }
 
         setIsSyncing(true);
-        setCloudStatusMsg(manual ? 'Refreshing vault from Channel...' : 'Auto-syncing library from Channel...');
+        setCloudStatusMsg(manual ? 'Synchronizing files from Telegram Channel...' : 'Auto-syncing library from Channel...');
 
         try {
-          const remoteData = await TelegramChunkCloud.fetchRemoteManifest(token);
-          if (remoteData && remoteData.manifest) {
-            const remoteVault = remoteData.manifest.comics || [];
+          const vaultManifest = await TelegramChunkCloud.fetchChannelVault(token, channel);
+
+          if (vaultManifest && Array.isArray(vaultManifest.comics)) {
+            const remoteVault = vaultManifest.comics;
+
             setComicsList((localList) => {
-              const mergedMap = new Map();
-              localList.forEach(item => mergedMap.set(item.id, item));
+              const map = new Map();
+              // Retain local memory pages for already downloaded items
+              localList.forEach(item => map.set(item.id, item));
+
               remoteVault.forEach(item => {
-                if (!mergedMap.has(item.id)) {
-                  mergedMap.set(item.id, item);
+                if (!map.has(item.id)) {
+                  map.set(item.id, item);
                 } else {
-                  const existing = mergedMap.get(item.id);
-                  mergedMap.set(item.id, { ...existing, ...item, pages: existing.pages || item.pages });
+                  const existing = map.get(item.id);
+                  map.set(item.id, {
+                    ...existing,
+                    ...item,
+                    cover: item.cover || existing.cover,
+                    pages: existing.pages || item.pages || null
+                  });
                 }
               });
-              return Array.from(mergedMap.values());
+              return Array.from(map.values());
             });
 
-            if (remoteData.manifest.userProfile) {
-              const prof = remoteData.manifest.userProfile;
-              if (prof.name) setUserName(prof.name);
-              if (prof.bio) setUserBio(prof.bio);
-              if (prof.avatar) setUserAvatar(prof.avatar);
+            if (vaultManifest.userProfile) {
+              if (vaultManifest.userProfile.name) setUserName(vaultManifest.userProfile.name);
+              if (vaultManifest.userProfile.bio) setUserBio(vaultManifest.userProfile.bio);
+              if (vaultManifest.userProfile.avatar) setUserAvatar(vaultManifest.userProfile.avatar);
             }
 
-            if (remoteData.manifest.streakLog) {
-              setStreakLog((prev) => Array.from(new Set([...prev, ...remoteData.manifest.streakLog])));
+            if (Array.isArray(vaultManifest.streakLog)) {
+              setStreakLog(prev => Array.from(new Set([...prev, ...vaultManifest.streakLog])));
             }
 
-            setCloudStatusMsg('Vault auto-synced successfully!');
+            setCloudStatusMsg(`✓ Synced ${remoteVault.length} issues from Channel Vault!`);
           } else {
-            setCloudStatusMsg(manual ? 'Synced! Channel vault is up to date.' : '');
+            // Local fallback if no remote pinned manifest exists yet
+            const localSaved = JSON.parse(localStorage.getItem('crimson_chunked_comics') || '[]');
+            if (localSaved.length > 0) {
+              await pushManifestUpdate(localSaved);
+              setCloudStatusMsg(`✓ Published ${localSaved.length} vault items to Channel.`);
+            } else {
+              setCloudStatusMsg('Vault is up to date.');
+            }
           }
         } catch (err) {
           console.warn('Sync failed:', err);
           if (manual) alert('Sync Error: ' + err.message);
         } finally {
           setIsSyncing(false);
-          setTimeout(() => setCloudStatusMsg(''), 2500);
+          setTimeout(() => setCloudStatusMsg(''), 3000);
         }
       }, [botToken, channelId]);
 
@@ -496,20 +546,21 @@
             comics: updatedComics.map(c => ({
               id: c.id,
               title: c.title,
-              author: c.author,
-              issue: c.issue,
-              totalPages: c.totalPages,
+              author: c.author || 'Telegram Vault',
+              issue: c.issue || 1,
+              totalPages: c.totalPages || 0,
               chunks: c.chunks || [],
               fileSize: c.fileSize || 0,
               cover: c.cover || null
             }))
           };
-          await TelegramChunkCloud.uploadManifest(token, channel, manifestPayload);
+          await TelegramChunkCloud.uploadPinnedManifest(token, channel, manifestPayload);
         } catch (err) {
           console.warn('Failed to publish cloud manifest:', err);
         }
       };
 
+      // Auto sync on entry, refresh, and window focus
       useEffect(() => {
         if (botToken && channelId) {
           handleSyncCloud(false);
@@ -873,7 +924,7 @@
           setIsProcessing(true);
           setUploadProgress(0);
           try {
-            setCloudStatusMsg('Downloading & recombining chunks from Channel...');
+            setCloudStatusMsg('Streaming & recombining parts from Channel...');
             const fullBlob = await TelegramChunkCloud.downloadAndRecombineChunks(
               botToken.trim(),
               comic.chunks,
@@ -1038,7 +1089,7 @@
                         </div>
                         <h3 className="font-bold text-sm text-white">Your Comic Library is Empty</h3>
                         <p className="text-xs text-gray-400 max-w-xs mx-auto">
-                          Upload `.cbz` or `.zip` issues. Enjoy smooth 3D touch page turns and auto-chunk cloud backup.
+                          Upload `.cbz` or `.zip` issues or sync to fetch your cloud files from Telegram.
                         </p>
                         <div className="flex justify-center gap-2">
                           <label className="inline-flex cursor-pointer items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/20 active:scale-95 transition">
@@ -1087,7 +1138,7 @@
                             <div className="p-2.5 space-y-1.5">
                               <p className="font-bold text-xs text-white truncate">{comic.title}</p>
                               <div className="flex justify-between items-center text-[10px] text-gray-400">
-                                <span>{comic.totalPages} Pages</span>
+                                <span>{comic.totalPages || '?'} Pages</span>
                                 <span className="text-red-400 font-bold">
                                   {comic.chunks && comic.chunks.length > 1 ? `${comic.chunks.length} Parts` : '1 Part'}
                                 </span>
@@ -1614,9 +1665,9 @@
                       </button>
                     </div>
                     <div className="flex justify-between text-[10px] text-gray-400 max-w-sm mx-auto px-1">
-                      <span>Pg {currentPage + 1} / {selectedComic?.totalPages}</span>
+                      <span>Pg {currentPage + 1} / {selectedComic?.totalPages || '?'}</span>
                       <span className="text-[10px] text-red-400 font-bold uppercase">{pageTurnEffect} effect active</span>
-                      <span>Total {selectedComic?.totalPages}</span>
+                      <span>Total {selectedComic?.totalPages || '?'}</span>
                     </div>
                   </div>
                 )}
@@ -1641,7 +1692,7 @@
                   </div>
                 )}
 
-                {/* Filters Modal */}
+                {/* Atmosphere Filters Modal */}
                 {showFiltersModal && (
                   <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
                     <div className="bg-[#141414] border border-neutral-800 p-4 rounded-xl max-w-xs w-full space-y-2">
