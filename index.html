@@ -1,0 +1,1696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>CrimsonComics Reader - Smooth Engine</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+  <!-- Babel compiler for inline JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- JSZip -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <!-- Swiper.js Touch Engine (Hardware Accelerated Gestures) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+
+  <style>
+    .swiper {
+      width: 100%;
+      height: 100%;
+    }
+    .swiper-3d {
+      perspective: 1200px;
+    }
+    .swiper-3d .swiper-wrapper,
+    .swiper-3d .swiper-slide {
+      transform-style: preserve-3d;
+    }
+    .swiper-slide {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: visible;
+      background: transparent;
+      width: 100%;
+      height: 100%;
+    }
+    .comic-img {
+      max-height: 88vh;
+      max-width: 96vw;
+      object-fit: contain;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-red-600 selection:text-white select-none overflow-hidden">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    const CHUNK_SIZE = 19 * 1024 * 1024;
+    const MANIFEST_CAPTION = 'CRIMSON_MANIFEST_V1';
+
+    const getTodayDateKey = () => new Date().toISOString().split('T')[0];
+
+    const calculateConsecutiveStreak = (activityLog = []) => {
+      if (!activityLog || activityLog.length === 0) return 0;
+      
+      const uniqueDays = Array.from(new Set(activityLog)).sort().reverse();
+      const todayKey = getTodayDateKey();
+      
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayKey = yesterday.toISOString().split('T')[0];
+
+      if (!uniqueDays.includes(todayKey) && !uniqueDays.includes(yesterdayKey)) {
+        return 0;
+      }
+
+      let streak = 0;
+      let checkDate = new Date(uniqueDays.includes(todayKey) ? todayKey : yesterdayKey);
+
+      while (true) {
+        const key = checkDate.toISOString().split('T')[0];
+        if (uniqueDays.includes(key)) {
+          streak++;
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else {
+          break;
+        }
+      }
+      return streak;
+    };
+
+    const TelegramChunkCloud = {
+      async testConnection(botToken, channelId) {
+        const getMeRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+        const getMeData = await getMeRes.json();
+        if (!getMeData.ok) throw new Error('Invalid Bot Token');
+
+        const testMsgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: channelId,
+            text: '⚡ <b>CrimsonComics Hardware Swiper Active!</b>',
+            parse_mode: 'HTML'
+          })
+        });
+        const testMsgData = await testMsgRes.json();
+        if (!testMsgData.ok) throw new Error('Channel permission error. Ensure bot is Admin.');
+        return getMeData.result.username;
+      },
+
+      uploadChunk(botToken, channelId, chunkBlob, chunkFileName, caption = '', onChunkProgress) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          const formData = new FormData();
+
+          formData.append('chat_id', channelId);
+          formData.append('document', chunkBlob, chunkFileName);
+          if (caption) formData.append('caption', caption);
+          formData.append('parse_mode', 'HTML');
+
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable && onChunkProgress) {
+              onChunkProgress(e.loaded, e.total);
+            }
+          });
+
+          xhr.onload = () => {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+                resolve({ fileId: data.result.document.file_id, messageId: data.result.message_id });
+              } else {
+                reject(new Error(data.description || `Upload failed with status ${xhr.status}`));
+              }
+            } catch (err) {
+              reject(new Error('Invalid response from Telegram API'));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error('Network error during chunk upload'));
+          xhr.open('POST', `https://api.telegram.org/bot${botToken}/sendDocument`);
+          xhr.send(formData);
+        });
+      },
+
+      async uploadLargeFileInChunks(botToken, channelId, file, onProgress) {
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const chunkRecords = [];
+
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * CHUNK_SIZE;
+          const end = Math.min(file.size, start + CHUNK_SIZE);
+          const chunkBlob = file.slice(start, end);
+          const chunkFileName = `${file.name}.part${String(i + 1).padStart(3, '0')}`;
+
+          const caption = totalChunks > 1 
+            ? `📦 <b>Part ${i + 1}/${totalChunks}</b> of <code>${file.name}</code>`
+            : `📚 <code>${file.name}</code>`;
+
+          const result = await this.uploadChunk(
+            botToken,
+            channelId,
+            chunkBlob,
+            chunkFileName,
+            caption,
+            (bytesLoaded) => {
+              const totalUploadedBytes = start + bytesLoaded;
+              const percent = Math.min(99, Math.round((totalUploadedBytes / file.size) * 100));
+              if (onProgress) onProgress(i + 1, totalChunks, percent);
+            }
+          );
+
+          chunkRecords.push({
+            partNumber: i + 1,
+            fileId: result.fileId,
+            messageId: result.messageId,
+            size: chunkBlob.size
+          });
+        }
+
+        if (onProgress) onProgress(totalChunks, totalChunks, 100);
+        return chunkRecords;
+      },
+
+      async downloadAndRecombineChunks(botToken, chunks, onProgress) {
+        const sortedChunks = [...chunks].sort((a, b) => a.partNumber - b.partNumber);
+        const downloadedBlobs = [];
+
+        for (let i = 0; i < sortedChunks.length; i++) {
+          const chunk = sortedChunks[i];
+          if (onProgress) onProgress(i + 1, sortedChunks.length, Math.round(((i + 1) / sortedChunks.length) * 100));
+
+          const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${chunk.fileId}`);
+          const fileInfo = await fileInfoRes.json();
+          if (!fileInfo.ok) throw new Error(`Could not fetch part ${chunk.partNumber}`);
+
+          const streamUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.result.file_path}`;
+          const chunkRes = await fetch(streamUrl);
+          const blobData = await chunkRes.blob();
+          downloadedBlobs.push(blobData);
+        }
+        return new Blob(downloadedBlobs, { type: 'application/vnd.comicbook+zip' });
+      },
+
+      async deleteChunksFromChannel(botToken, channelId, chunks) {
+        for (const chunk of chunks) {
+          if (chunk.messageId) {
+            try {
+              await fetch(`https://api.telegram.org/bot${botToken}/deleteMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: channelId, message_id: chunk.messageId })
+              });
+            } catch (err) {
+              console.warn('Failed to delete chunk', chunk.messageId);
+            }
+          }
+        }
+      },
+
+      async uploadManifest(botToken, channelId, manifestData) {
+        const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/json' });
+        return await this.uploadChunk(
+          botToken,
+          channelId,
+          manifestBlob,
+          'crimson_cloud_vault.json',
+          MANIFEST_CAPTION
+        );
+      },
+
+      async fetchRemoteManifest(botToken) {
+        try {
+          const updatesRes = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?limit=50&allowed_updates=["channel_post","message"]`);
+          const updatesData = await updatesRes.json();
+          if (!updatesData.ok || !updatesData.result) return null;
+
+          const posts = updatesData.result
+            .map(u => u.channel_post || u.message)
+            .filter(Boolean)
+            .reverse();
+
+          for (const post of posts) {
+            if (post.caption === MANIFEST_CAPTION && post.document) {
+              const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${post.document.file_id}`);
+              const fileInfo = await fileInfoRes.json();
+              if (fileInfo.ok) {
+                const streamUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.result.file_path}`;
+                const manifestRes = await fetch(streamUrl);
+                const manifestJson = await manifestRes.json();
+                return { manifest: manifestJson, messageId: post.message_id };
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Manifest sync check failed:', err);
+        }
+        return null;
+      }
+    };
+
+    function App() {
+      const [activeTab, setActiveTab] = useState('library');
+      const [personalSubTab, setPersonalSubTab] = useState('history');
+      const [selectedComic, setSelectedComic] = useState(null);
+      const [isReaderOpen, setIsReaderOpen] = useState(false);
+
+      const [currentDateTime, setCurrentDateTime] = useState(new Date());
+
+      useEffect(() => {
+        const clock = setInterval(() => setCurrentDateTime(new Date()), 1000);
+        return () => clearInterval(clock);
+      }, []);
+
+      const [userName, setUserName] = useState(() => localStorage.getItem('crimson_user_name') || 'Comic Enthusiast');
+      const [userBio, setUserBio] = useState(() => localStorage.getItem('crimson_user_bio') || 'Reader & Collector');
+      const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('crimson_user_avatar') || '👤');
+      const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('crimson_remember_me') !== 'false');
+      const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+      const [botToken, setBotToken] = useState(() => localStorage.getItem('tg_bot_token') || '');
+      const [channelId, setChannelId] = useState(() => localStorage.getItem('tg_channel_id') || '');
+      const [cloudStatusMsg, setCloudStatusMsg] = useState('');
+      const [isProcessing, setIsProcessing] = useState(false);
+      const [isSyncing, setIsSyncing] = useState(false);
+      const [testSuccessMsg, setTestSuccessMsg] = useState('');
+
+      const [uploadProgress, setUploadProgress] = useState(0);
+
+      const [comicsList, setComicsList] = useState(() => {
+        const saved = localStorage.getItem('crimson_chunked_comics');
+        return saved ? JSON.parse(saved) : [];
+      });
+
+      const [currentPage, setCurrentPage] = useState(0);
+      const [pageTurnEffect, setPageTurnEffect] = useState(() => {
+        const saved = localStorage.getItem('crimson_turn_effect');
+        if (!saved || saved === 'cards') return 'slide';
+        return saved;
+      });
+      const [readingMode, setReadingMode] = useState('single');
+      const [showOverlay, setShowOverlay] = useState(true);
+      const swiperInstanceRef = useRef(null);
+
+      const [colorPreset, setColorPreset] = useState('normal');
+      const [showFiltersModal, setShowFiltersModal] = useState(false);
+      const [oledPureBlack, setOledPureBlack] = useState(() => localStorage.getItem('crimson_oled_mode') === 'true');
+
+      const [bookmarks, setBookmarks] = useState(() => {
+        const saved = localStorage.getItem('crimson_bookmarks');
+        return saved ? JSON.parse(saved) : {};
+      });
+      const [showBookmarkModal, setShowBookmarkModal] = useState(false);
+      const [currentNoteInput, setCurrentNoteInput] = useState('');
+      const [favorites, setFavorites] = useState(() => {
+        const saved = localStorage.getItem('crimson_favorites');
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [history, setHistory] = useState(() => {
+        const saved = localStorage.getItem('crimson_history');
+        return saved ? JSON.parse(saved) : [];
+      });
+
+      const [streakLog, setStreakLog] = useState(() => {
+        const saved = localStorage.getItem('crimson_streak_log');
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [totalPagesRead, setTotalPagesRead] = useState(() => Number(localStorage.getItem('crimson_pages_read') || 0));
+      const [readingMinutes, setReadingMinutes] = useState(() => Number(localStorage.getItem('crimson_minutes_read') || 0));
+      const [searchQuery, setSearchQuery] = useState('');
+
+      const activeStreakCount = useMemo(() => calculateConsecutiveStreak(streakLog), [streakLog]);
+
+      useEffect(() => { localStorage.setItem('crimson_user_name', userName); }, [userName]);
+      useEffect(() => { localStorage.setItem('crimson_user_bio', userBio); }, [userBio]);
+      useEffect(() => { localStorage.setItem('crimson_user_avatar', userAvatar); }, [userAvatar]);
+      useEffect(() => { localStorage.setItem('crimson_remember_me', String(rememberMe)); }, [rememberMe]);
+      useEffect(() => { localStorage.setItem('crimson_oled_mode', String(oledPureBlack)); }, [oledPureBlack]);
+
+      useEffect(() => {
+        if (rememberMe) {
+          localStorage.setItem('tg_bot_token', botToken.trim());
+          localStorage.setItem('tg_channel_id', channelId.trim());
+        } else {
+          localStorage.removeItem('tg_bot_token');
+          localStorage.removeItem('tg_channel_id');
+        }
+      }, [botToken, channelId, rememberMe]);
+
+      useEffect(() => { localStorage.setItem('crimson_turn_effect', pageTurnEffect); }, [pageTurnEffect]);
+      useEffect(() => {
+        localStorage.setItem('crimson_chunked_comics', JSON.stringify(comicsList.map(c => ({
+          id: c.id,
+          title: c.title,
+          author: c.author,
+          issue: c.issue,
+          totalPages: c.totalPages,
+          chunks: c.chunks || [],
+          fileSize: c.fileSize || 0,
+          cover: c.cover || null
+        }))));
+      }, [comicsList]);
+      useEffect(() => { localStorage.setItem('crimson_bookmarks', JSON.stringify(bookmarks)); }, [bookmarks]);
+      useEffect(() => { localStorage.setItem('crimson_favorites', JSON.stringify(favorites)); }, [favorites]);
+      useEffect(() => { localStorage.setItem('crimson_history', JSON.stringify(history)); }, [history]);
+      useEffect(() => { localStorage.setItem('crimson_streak_log', JSON.stringify(streakLog)); }, [streakLog]);
+      useEffect(() => { localStorage.setItem('crimson_pages_read', totalPagesRead); }, [totalPagesRead]);
+      useEffect(() => { localStorage.setItem('crimson_minutes_read', readingMinutes); }, [readingMinutes]);
+
+      const deleteHistoryItem = (comicId, e) => {
+        if (e) e.stopPropagation();
+        setHistory(prev => prev.filter(item => item.comicId !== comicId));
+      };
+
+      const clearAllHistory = () => {
+        if (confirm('Clear all reading history?')) {
+          setHistory([]);
+        }
+      };
+
+      const deleteBookmarkItem = (comicId, bookmarkIndex, e) => {
+        if (e) e.stopPropagation();
+        setBookmarks(prev => {
+          const updated = { ...prev };
+          const list = [...(updated[comicId] || [])];
+          list.splice(bookmarkIndex, 1);
+          if (list.length > 0) {
+            updated[comicId] = list;
+          } else {
+            delete updated[comicId];
+          }
+          return updated;
+        });
+      };
+
+      const clearAllBookmarks = () => {
+        if (confirm('Delete all saved bookmarks?')) {
+          setBookmarks({});
+        }
+      };
+
+      const getWeekDays = () => {
+        const now = new Date(currentDateTime);
+        const currentDayIndex = (now.getDay() + 6) % 7;
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - currentDayIndex);
+
+        return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dayName, index) => {
+          const dateObj = new Date(startOfWeek);
+          dateObj.setDate(startOfWeek.getDate() + index);
+          const dateKey = dateObj.toISOString().split('T')[0];
+          const isToday = dateKey === getTodayDateKey();
+          const hasRead = streakLog.includes(dateKey);
+          return { dayName, dateNumber: dateObj.getDate(), dateKey, isToday, hasRead };
+        });
+      };
+
+      const recordDailyActivity = useCallback(() => {
+        const todayKey = getTodayDateKey();
+        setStreakLog((prev) => {
+          if (!prev.includes(todayKey)) {
+            return [...prev, todayKey];
+          }
+          return prev;
+        });
+      }, []);
+
+      const handleSyncCloud = useCallback(async (manual = false) => {
+        const token = botToken.trim();
+        const channel = channelId.trim();
+        if (!token || !channel) {
+          if (manual) alert('Please provide a Bot Token and Channel ID in Settings.');
+          return;
+        }
+
+        setIsSyncing(true);
+        setCloudStatusMsg(manual ? 'Refreshing vault from Channel...' : 'Auto-syncing library from Channel...');
+
+        try {
+          const remoteData = await TelegramChunkCloud.fetchRemoteManifest(token);
+          if (remoteData && remoteData.manifest) {
+            const remoteVault = remoteData.manifest.comics || [];
+            setComicsList((localList) => {
+              const mergedMap = new Map();
+              localList.forEach(item => mergedMap.set(item.id, item));
+              remoteVault.forEach(item => {
+                if (!mergedMap.has(item.id)) {
+                  mergedMap.set(item.id, item);
+                } else {
+                  const existing = mergedMap.get(item.id);
+                  mergedMap.set(item.id, { ...existing, ...item, pages: existing.pages || item.pages });
+                }
+              });
+              return Array.from(mergedMap.values());
+            });
+
+            if (remoteData.manifest.userProfile) {
+              const prof = remoteData.manifest.userProfile;
+              if (prof.name) setUserName(prof.name);
+              if (prof.bio) setUserBio(prof.bio);
+              if (prof.avatar) setUserAvatar(prof.avatar);
+            }
+
+            if (remoteData.manifest.streakLog) {
+              setStreakLog((prev) => Array.from(new Set([...prev, ...remoteData.manifest.streakLog])));
+            }
+
+            setCloudStatusMsg('Vault auto-synced successfully!');
+          } else {
+            setCloudStatusMsg(manual ? 'Synced! Channel vault is up to date.' : '');
+          }
+        } catch (err) {
+          console.warn('Sync failed:', err);
+          if (manual) alert('Sync Error: ' + err.message);
+        } finally {
+          setIsSyncing(false);
+          setTimeout(() => setCloudStatusMsg(''), 2500);
+        }
+      }, [botToken, channelId]);
+
+      const pushManifestUpdate = async (updatedComics) => {
+        const token = botToken.trim();
+        const channel = channelId.trim();
+        if (!token || !channel) return;
+
+        try {
+          const manifestPayload = {
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            userProfile: { name: userName, bio: userBio, avatar: userAvatar },
+            streakLog: streakLog,
+            comics: updatedComics.map(c => ({
+              id: c.id,
+              title: c.title,
+              author: c.author,
+              issue: c.issue,
+              totalPages: c.totalPages,
+              chunks: c.chunks || [],
+              fileSize: c.fileSize || 0,
+              cover: c.cover || null
+            }))
+          };
+          await TelegramChunkCloud.uploadManifest(token, channel, manifestPayload);
+        } catch (err) {
+          console.warn('Failed to publish cloud manifest:', err);
+        }
+      };
+
+      useEffect(() => {
+        if (botToken && channelId) {
+          handleSyncCloud(false);
+        }
+
+        const onFocus = () => {
+          if (botToken && channelId && !isReaderOpen) {
+            handleSyncCloud(false);
+          }
+        };
+
+        window.addEventListener('focus', onFocus);
+        return () => window.removeEventListener('focus', onFocus);
+      }, [botToken, channelId, isReaderOpen, handleSyncCloud]);
+
+      const themeBg = oledPureBlack ? 'bg-[#000000]' : 'bg-[#0a0a0a]';
+      const cardBg = oledPureBlack ? 'bg-[#000000] border-neutral-900 shadow-none' : 'bg-[#141414] border-neutral-800';
+      const navBg = oledPureBlack ? 'bg-[#000000] border-neutral-900' : 'bg-[#111111] border-neutral-900';
+      const inputBg = oledPureBlack ? 'bg-[#000000] border-neutral-900' : 'bg-[#141414] border-neutral-800';
+
+      const handleAvatarUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 120;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > MAX_SIZE) {
+                height *= MAX_SIZE / width;
+                width = MAX_SIZE;
+              }
+            } else {
+              if (height > MAX_SIZE) {
+                width *= MAX_SIZE / height;
+                height = MAX_SIZE;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            setUserAvatar(dataUrl);
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      };
+
+      useEffect(() => {
+        if (isReaderOpen && readingMode !== 'webtoon' && selectedComic?.pages?.length > 0) {
+          if (swiperInstanceRef.current) {
+            swiperInstanceRef.current.destroy(true, true);
+            swiperInstanceRef.current = null;
+          }
+
+          let effectConfig = {
+            effect: pageTurnEffect === 'cube' ? 'cube' : pageTurnEffect === 'flip' ? 'flip' : pageTurnEffect === 'fade' ? 'fade' : 'slide',
+            slidesPerView: 1,
+            spaceBetween: 0,
+            grabCursor: true,
+            initialSlide: currentPage,
+            speed: 300,
+            touchRatio: 1.2,
+            resistanceRatio: 0.85,
+            followFinger: true,
+            observer: true,
+            observeParents: true,
+            watchSlidesProgress: true
+          };
+
+          if (pageTurnEffect === 'cube') {
+            effectConfig.cubeEffect = { shadow: true, slideShadows: true, shadowOffset: 20, shadowScale: 0.94 };
+          } else if (pageTurnEffect === 'flip') {
+            effectConfig.flipEffect = { slideShadows: true, limitRotation: true };
+          } else if (pageTurnEffect === 'fade') {
+            effectConfig.fadeEffect = { crossFade: true };
+          }
+
+          const initTimer = setTimeout(() => {
+            const swiper = new Swiper('.swiper', {
+              ...effectConfig,
+              on: {
+                slideChange: (s) => {
+                  setCurrentPage(s.activeIndex);
+                  setTotalPagesRead((p) => p + 1);
+                  recordDailyActivity();
+                },
+                tap: () => {
+                  setShowOverlay((prev) => !prev);
+                }
+              }
+            });
+            swiperInstanceRef.current = swiper;
+          }, 50);
+
+          const handleResize = () => swiperInstanceRef.current?.update();
+          window.addEventListener('resize', handleResize);
+
+          return () => {
+            clearTimeout(initTimer);
+            window.removeEventListener('resize', handleResize);
+            if (swiperInstanceRef.current) {
+              swiperInstanceRef.current.destroy(true, true);
+              swiperInstanceRef.current = null;
+            }
+          };
+        }
+      }, [isReaderOpen, readingMode, pageTurnEffect, selectedComic, recordDailyActivity]);
+
+      useEffect(() => {
+        const timer = setInterval(() => {
+          if (isReaderOpen) setReadingMinutes((m) => m + 1);
+        }, 60000);
+        return () => clearInterval(timer);
+      }, [isReaderOpen]);
+
+      useEffect(() => {
+        if (selectedComic && isReaderOpen) {
+          recordDailyActivity();
+          setHistory((prev) => {
+            const filtered = prev.filter((item) => item.comicId !== selectedComic.id);
+            return [
+              {
+                comicId: selectedComic.id,
+                title: selectedComic.title,
+                page: currentPage,
+                timestamp: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' • ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              },
+              ...filtered
+            ];
+          });
+        }
+      }, [currentPage, selectedComic, isReaderOpen, recordDailyActivity]);
+
+      const handleTestConnection = async () => {
+        if (!botToken || !channelId) {
+          alert('Please enter your Bot Token and Channel ID.');
+          return;
+        }
+        setIsProcessing(true);
+        setTestSuccessMsg('');
+        try {
+          const botUsername = await TelegramChunkCloud.testConnection(botToken.trim(), channelId.trim());
+          setTestSuccessMsg(`Connected successfully to @${botUsername}!`);
+          await handleSyncCloud(true);
+        } catch (err) {
+          alert('Channel Connection Failed:\n\n' + err.message);
+        } finally {
+          setIsProcessing(false);
+        }
+      };
+
+      const extractArchiveToPages = async (fileOrBlob) => {
+        const zip = await JSZip.loadAsync(fileOrBlob);
+        const imageEntries = [];
+
+        zip.forEach((relativePath, zipEntry) => {
+          if (!zipEntry.dir && /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(zipEntry.name)) {
+            imageEntries.push(zipEntry);
+          }
+        });
+
+        imageEntries.sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+        );
+
+        if (imageEntries.length === 0) throw new Error("No comic pages found inside archive.");
+
+        const pageUrls = await Promise.all(
+          imageEntries.map(async (entry) => {
+            const blob = await entry.async("blob");
+            return URL.createObjectURL(blob);
+          })
+        );
+        return pageUrls;
+      };
+
+      const handleFileUpload = async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+
+        setIsProcessing(true);
+        setUploadProgress(0);
+        setCloudStatusMsg('Reading comic file...');
+
+        try {
+          const file = files[0];
+          const isArchive = file.name.toLowerCase().endsWith('.cbz') || 
+                            file.name.toLowerCase().endsWith('.zip') || 
+                            file.type.includes('zip');
+
+          let pageUrls = [];
+          let uploadFileBlob = file;
+
+          if (isArchive) {
+            setCloudStatusMsg('Extracting pages for reader...');
+            pageUrls = await extractArchiveToPages(file);
+          } else {
+            const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+            if (imageFiles.length === 0) throw new Error("Please select a .cbz, .zip, or image sequence.");
+            imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+            pageUrls = imageFiles.map((f) => URL.createObjectURL(f));
+
+            setCloudStatusMsg('Packing CBZ archive: 0%');
+            const zip = new JSZip();
+            for (let i = 0; i < imageFiles.length; i++) {
+              zip.file(imageFiles[i].name, imageFiles[i]);
+            }
+            const packedBlob = await zip.generateAsync({ type: 'blob' }, (metadata) => {
+              const packPct = Math.round(metadata.percent);
+              setUploadProgress(packPct);
+              setCloudStatusMsg(`Packing CBZ archive: ${packPct}%`);
+            });
+            uploadFileBlob = new File([packedBlob], `${files[0].name.split('.')[0] || 'comic'}.cbz`, { type: 'application/vnd.comicbook+zip' });
+          }
+
+          const comicTitle = file.name.replace(/\.(cbz|zip)$/i, '');
+          let chunkRecords = [];
+
+          if (botToken && channelId) {
+            setCloudStatusMsg('Starting Telegram Channel upload...');
+            chunkRecords = await TelegramChunkCloud.uploadLargeFileInChunks(
+              botToken.trim(),
+              channelId.trim(),
+              uploadFileBlob,
+              (part, total, percent) => {
+                setCloudStatusMsg(`Uploading Part ${part}/${total} (${percent}%) to Channel...`);
+                setUploadProgress(percent);
+              }
+            );
+          }
+
+          const newComic = {
+            id: `comic-${Date.now()}`,
+            title: comicTitle,
+            author: 'Channel Chunk File',
+            issue: 1,
+            cover: pageUrls[0],
+            totalPages: pageUrls.length,
+            pages: pageUrls,
+            originalFile: uploadFileBlob,
+            chunks: chunkRecords,
+            fileSize: uploadFileBlob.size
+          };
+
+          const updatedList = [newComic, ...comicsList];
+          setComicsList(updatedList);
+          await pushManifestUpdate(updatedList);
+
+          setSelectedComic(newComic);
+          setCurrentPage(0);
+          setIsReaderOpen(true);
+        } catch (err) {
+          alert('Upload Failed:\n\n' + err.message);
+        } finally {
+          setIsProcessing(false);
+          setCloudStatusMsg('');
+          setUploadProgress(0);
+          e.target.value = '';
+        }
+      };
+
+      const handleDownloadComic = async (comic, e) => {
+        if (e) e.stopPropagation();
+        setIsProcessing(true);
+        setUploadProgress(0);
+
+        try {
+          if (comic.originalFile) {
+            const downloadUrl = URL.createObjectURL(comic.originalFile);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = `${comic.title}.cbz`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(downloadUrl);
+            setCloudStatusMsg('Download complete!');
+            setTimeout(() => setCloudStatusMsg(''), 2500);
+            return;
+          }
+
+          if (comic.chunks && comic.chunks.length > 0 && botToken) {
+            setCloudStatusMsg('Downloading chunks from Channel...');
+            const fullBlob = await TelegramChunkCloud.downloadAndRecombineChunks(
+              botToken.trim(),
+              comic.chunks,
+              (part, total, percent) => {
+                setCloudStatusMsg(`Fetching part ${part}/${total} (${percent}%)...`);
+                setUploadProgress(percent);
+              }
+            );
+
+            const downloadUrl = URL.createObjectURL(fullBlob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = `${comic.title}.cbz`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(downloadUrl);
+
+            setCloudStatusMsg('Recombined & Downloaded!');
+            setTimeout(() => setCloudStatusMsg(''), 3000);
+            return;
+          }
+        } catch (err) {
+          alert('Download Failed:\n\n' + err.message);
+        } finally {
+          setIsProcessing(false);
+          setCloudStatusMsg('');
+          setUploadProgress(0);
+        }
+      };
+
+      const handleDeleteComic = async (comicId, e) => {
+        if (e) e.stopPropagation();
+        const comic = comicsList.find((c) => c.id === comicId);
+        if (!comic) return;
+
+        if (!confirm(`Delete "${comic.title}" from library and Telegram Channel?`)) return;
+
+        if (comic.chunks && comic.chunks.length > 0 && botToken && channelId) {
+          setCloudStatusMsg('Deleting parts from Channel...');
+          await TelegramChunkCloud.deleteChunksFromChannel(botToken.trim(), channelId.trim(), comic.chunks);
+        }
+
+        const remaining = comicsList.filter((c) => c.id !== comicId);
+        setComicsList(remaining);
+        await pushManifestUpdate(remaining);
+
+        setFavorites((prev) => prev.filter((id) => id !== comicId));
+        setHistory((prev) => prev.filter((item) => item.comicId !== comicId));
+
+        if (selectedComic && selectedComic.id === comicId) {
+          setIsReaderOpen(false);
+          setSelectedComic(null);
+        }
+        setCloudStatusMsg('Comic deleted.');
+        setTimeout(() => setCloudStatusMsg(''), 2500);
+      };
+
+      const handleOpenComic = async (comic) => {
+        if (comic.pages && comic.pages.length > 0) {
+          setSelectedComic(comic);
+          setCurrentPage(0);
+          setIsReaderOpen(true);
+          return;
+        }
+
+        if (comic.chunks && comic.chunks.length > 0 && botToken) {
+          setIsProcessing(true);
+          setUploadProgress(0);
+          try {
+            setCloudStatusMsg('Downloading & recombining chunks from Channel...');
+            const fullBlob = await TelegramChunkCloud.downloadAndRecombineChunks(
+              botToken.trim(),
+              comic.chunks,
+              (part, total, percent) => {
+                setCloudStatusMsg(`Streaming part ${part}/${total} (${percent}%)...`);
+                setUploadProgress(percent);
+              }
+            );
+
+            const pageUrls = await extractArchiveToPages(fullBlob);
+            const updatedComic = {
+              ...comic,
+              cover: pageUrls[0],
+              pages: pageUrls,
+              originalFile: fullBlob
+            };
+
+            setComicsList((prev) => prev.map((c) => (c.id === comic.id ? updatedComic : c)));
+            setSelectedComic(updatedComic);
+            setCurrentPage(0);
+            setIsReaderOpen(true);
+          } catch (err) {
+            alert('Failed to load comic: ' + err.message);
+          } finally {
+            setIsProcessing(false);
+            setCloudStatusMsg('');
+            setUploadProgress(0);
+          }
+        }
+      };
+
+      const toggleFavorite = (comicId, e) => {
+        if (e) e.stopPropagation();
+        setFavorites((prev) =>
+          prev.includes(comicId) ? prev.filter((id) => id !== comicId) : [...prev, comicId]
+        );
+      };
+
+      const addBookmark = () => {
+        if (!selectedComic) return;
+        const current = bookmarks[selectedComic.id] || [];
+        const newBookmarks = {
+          ...bookmarks,
+          [selectedComic.id]: [
+            ...current,
+            {
+              page: currentPage,
+              note: currentNoteInput || `Page ${currentPage + 1} bookmark`,
+              time: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+          ]
+        };
+        setBookmarks(newBookmarks);
+        setCurrentNoteInput('');
+        setShowBookmarkModal(false);
+      };
+
+      const getFilterStyle = () => {
+        if (colorPreset === 'amber') return 'sepia(45%) hue-rotate(-20deg)';
+        if (colorPreset === 'crimson') return 'sepia(80%) hue-rotate(310deg) saturate(140%)';
+        if (colorPreset === 'manga-bw') return 'grayscale(100%) contrast(140%)';
+        return 'none';
+      };
+
+      const filteredComics = comicsList.filter((comic) =>
+        comic.title.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+
+      const renderAvatar = (sizeClass = 'w-12 h-12 text-2xl') => {
+        if (userAvatar?.startsWith('data:image')) {
+          return <img src={userAvatar} className={`${sizeClass} rounded-full object-cover border border-red-500/40`} alt="Avatar" />;
+        }
+        return (
+          <div className={`${sizeClass} rounded-full bg-red-600/20 border border-red-500/40 flex items-center justify-center`}>
+            {userAvatar}
+          </div>
+        );
+      };
+
+      const totalBookmarkCount = Object.values(bookmarks).reduce((acc, curr) => acc + curr.length, 0);
+
+      return (
+        <div className={`min-h-screen ${themeBg} text-gray-100 flex flex-col font-sans select-none overflow-hidden transition-colors duration-200`}>
+          
+          {/* Top Navbar */}
+          {!isReaderOpen && (
+            <header className={`sticky top-0 z-40 ${navBg} border-b px-4 py-3 flex items-center justify-between shadow-lg`}>
+              <div className="flex items-center gap-2">
+                <span className="text-red-500 font-extrabold text-lg tracking-wider">⚡ CRIMSON COMICS</span>
+              </div>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <button
+                  onClick={() => handleSyncCloud(true)}
+                  disabled={isSyncing}
+                  className={`p-2 rounded-lg bg-neutral-900 border border-neutral-800 text-gray-300 hover:text-white active:scale-95 transition ${isSyncing ? 'animate-spin text-red-500' : ''}`}
+                  title="Auto-Sync & Refresh Vault"
+                >
+                  🔄
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {renderAvatar('w-7 h-7 text-xs')}
+                  <span className="text-xs text-gray-300 font-bold hidden sm:inline">{userName}</span>
+                </div>
+                <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold active:scale-95 transition shadow-md shadow-red-600/30">
+                  <span>{isProcessing ? 'Processing...' : '⬆ Upload'}</span>
+                  <input 
+                    type="file" 
+                    multiple 
+                    accept="*/*" 
+                    onChange={handleFileUpload} 
+                    className="hidden" 
+                    disabled={isProcessing}
+                  />
+                </label>
+              </div>
+            </header>
+          )}
+
+          {/* Status Notification */}
+          {cloudStatusMsg && (
+            <div className="bg-red-950/90 border-b border-red-800 px-4 py-2 space-y-1.5">
+              <p className="text-red-200 text-xs text-center font-medium">{cloudStatusMsg}</p>
+              {uploadProgress > 0 && (
+                <div className="w-full max-w-sm mx-auto h-1.5 bg-red-950 rounded-full overflow-hidden border border-red-900/50">
+                  <div
+                    className="h-full bg-red-500 transition-all duration-150 ease-out"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <main className="flex-1 pb-20 overflow-y-auto">
+            {!isReaderOpen ? (
+              <div className="p-4 space-y-4 max-w-4xl mx-auto">
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    placeholder="Search comic series..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={`flex-1 px-3.5 py-2.5 ${inputBg} border rounded-xl text-xs text-white outline-none focus:border-red-600`}
+                  />
+                  <button
+                    onClick={() => handleSyncCloud(true)}
+                    className={`px-3.5 py-2.5 ${inputBg} border rounded-xl text-xs font-bold text-gray-300 hover:text-white flex items-center gap-1.5 active:scale-95 transition`}
+                  >
+                    <span>🔄</span>
+                    <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync Vault'}</span>
+                  </button>
+                </div>
+
+                {/* Library Tab */}
+                {activeTab === 'library' && (
+                  <div>
+                    {comicsList.length === 0 ? (
+                      <div className={`text-center py-16 ${cardBg} rounded-2xl border p-6 space-y-3`}>
+                        <div className="w-16 h-16 rounded-full bg-red-600/10 border border-red-600/30 flex items-center justify-center mx-auto text-3xl">
+                          📖
+                        </div>
+                        <h3 className="font-bold text-sm text-white">Your Comic Library is Empty</h3>
+                        <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                          Upload `.cbz` or `.zip` issues. Enjoy smooth 3D touch page turns and auto-chunk cloud backup.
+                        </p>
+                        <div className="flex justify-center gap-2">
+                          <label className="inline-flex cursor-pointer items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/20 active:scale-95 transition">
+                            <span>Upload Comic Issue</span>
+                            <input 
+                              type="file" 
+                              multiple 
+                              accept="*/*" 
+                              onChange={handleFileUpload} 
+                              className="hidden" 
+                              disabled={isProcessing}
+                            />
+                          </label>
+                          <button
+                            onClick={() => handleSyncCloud(true)}
+                            className="px-4 py-2 rounded-xl bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 text-white text-xs font-bold active:scale-95 transition"
+                          >
+                            🔄 Sync Channel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {filteredComics.map((comic) => (
+                          <div
+                            key={comic.id}
+                            onClick={() => handleOpenComic(comic)}
+                            className={`${cardBg} border hover:border-red-600 rounded-xl overflow-hidden cursor-pointer flex flex-col active:scale-95 transition`}
+                          >
+                            <div className={`relative aspect-[2/3] ${oledPureBlack ? 'bg-black' : 'bg-neutral-900'} overflow-hidden flex items-center justify-center`}>
+                              {comic.cover ? (
+                                <img src={comic.cover} alt={comic.title} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="text-center p-2 text-gray-500 text-xs">
+                                  <span className="text-2xl block mb-1">☁️</span>
+                                  <span>Tap to stream from channel</span>
+                                </div>
+                              )}
+                              <button
+                                onClick={(e) => toggleFavorite(comic.id, e)}
+                                className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 border border-white/10"
+                              >
+                                <span className={favorites.includes(comic.id) ? 'text-red-500' : 'text-gray-400'}>★</span>
+                              </button>
+                            </div>
+                            <div className="p-2.5 space-y-1.5">
+                              <p className="font-bold text-xs text-white truncate">{comic.title}</p>
+                              <div className="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>{comic.totalPages} Pages</span>
+                                <span className="text-red-400 font-bold">
+                                  {comic.chunks && comic.chunks.length > 1 ? `${comic.chunks.length} Parts` : '1 Part'}
+                                </span>
+                              </div>
+                              <div className="flex gap-1.5 pt-1.5 border-t border-neutral-800/80">
+                                <button
+                                  onClick={(e) => handleDownloadComic(comic, e)}
+                                  className={`flex-1 py-1.5 rounded-lg ${oledPureBlack ? 'bg-neutral-950 border border-neutral-900' : 'bg-neutral-900'} hover:bg-neutral-800 text-gray-300 text-[10px] font-bold flex items-center justify-center gap-1 active:scale-95`}
+                                >
+                                  <span>⬇️</span> Download
+                                </button>
+                                <button
+                                  onClick={(e) => handleDeleteComic(comic.id, e)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 text-[10px] font-bold active:scale-95"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Personal Space Tab */}
+                {activeTab === 'personal' && (
+                  <div className="space-y-4">
+                    {/* User Profile Card */}
+                    <div className={`${cardBg} border rounded-2xl p-4 flex flex-col gap-3 shadow-lg`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {renderAvatar('w-12 h-12 text-2xl')}
+                          <div>
+                            <h3 className="text-sm font-extrabold text-white">{userName}</h3>
+                            <p className="text-[11px] text-gray-400">{userBio}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setIsEditingProfile(!isEditingProfile)}
+                          className="px-3 py-1 rounded-lg bg-neutral-900 border border-neutral-800 text-xs font-bold text-gray-300 hover:text-white"
+                        >
+                          {isEditingProfile ? 'Done' : '✏️ Edit Profile'}
+                        </button>
+                      </div>
+
+                      {isEditingProfile && (
+                        <div className="pt-3 border-t border-neutral-800 space-y-3">
+                          <div className="flex flex-col gap-2">
+                            <label className="text-[11px] font-bold text-gray-400">Profile Photo</label>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <label className="cursor-pointer px-3 py-1.5 rounded-xl bg-red-600/20 border border-red-500/50 hover:bg-red-600/30 text-red-400 text-xs font-bold transition flex items-center gap-1.5">
+                                <span>📷 Upload Photo</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleAvatarUpload}
+                                  className="hidden"
+                                />
+                              </label>
+                              <div className="flex gap-1">
+                                {['👤', '🦸', '🦹', '⚡', '🔥'].map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    onClick={() => setUserAvatar(emoji)}
+                                    className={`w-8 h-8 rounded-lg border text-sm flex items-center justify-center ${userAvatar === emoji ? 'border-red-500 bg-red-600/20' : 'border-neutral-800 bg-black'}`}
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-gray-400">Display Name</label>
+                            <input
+                              type="text"
+                              value={userName}
+                              onChange={(e) => setUserName(e.target.value)}
+                              placeholder="Your Name"
+                              className={`w-full px-2.5 py-1.5 ${inputBg} border rounded-lg text-xs text-white outline-none focus:border-red-600`}
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-gray-400">Bio / Status</label>
+                            <input
+                              type="text"
+                              value={userBio}
+                              onChange={(e) => setUserBio(e.target.value)}
+                              placeholder="Your Tagline..."
+                              className={`w-full px-2.5 py-1.5 ${inputBg} border rounded-lg text-xs text-white outline-none focus:border-red-600`}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-center pt-2 border-t border-neutral-800 text-xs">
+                        <div className="flex items-center gap-1.5 text-red-500 font-extrabold text-sm">
+                          <span>{activeStreakCount > 0 ? '🔥' : '❄️'}</span>
+                          <span>{activeStreakCount} {activeStreakCount === 1 ? 'Day' : 'Days'} Streak</span>
+                        </div>
+                        <span className="text-[10px] text-gray-400">
+                          {currentDateTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} • {currentDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className={`grid grid-cols-3 gap-2 ${cardBg} border rounded-2xl p-3 text-center`}>
+                      <div>
+                        <p className="text-xs font-black text-white">{totalPagesRead}</p>
+                        <p className="text-[10px] text-gray-400">Pages Read</p>
+                      </div>
+                      <div className="border-x border-neutral-800">
+                        <p className="text-xs font-black text-white">{readingMinutes} min</p>
+                        <p className="text-[10px] text-gray-400">Time Spent</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-red-500">{comicsList.length}</p>
+                        <p className="text-[10px] text-gray-400">Channel Vault</p>
+                      </div>
+                    </div>
+
+                    <div className={`flex ${cardBg} p-1 rounded-xl border`}>
+                      {[
+                        { id: 'history', label: '📖 History' },
+                        { id: 'bookmarks', label: '🔖 Bookmarks & Notes' },
+                        { id: 'streak', label: '🔥 Streak Log' }
+                      ].map((sub) => (
+                        <button
+                          key={sub.id}
+                          onClick={() => setPersonalSubTab(sub.id)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                            personalSubTab === sub.id ? 'bg-red-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* History SubTab */}
+                    {personalSubTab === 'history' && (
+                      <div className="space-y-2">
+                        {history.length > 0 && (
+                          <div className="flex justify-between items-center px-1 pb-1">
+                            <span className="text-[11px] text-gray-400 font-semibold">{history.length} Recent Issues</span>
+                            <button
+                              onClick={clearAllHistory}
+                              className="text-[11px] text-red-400 hover:text-red-300 font-bold transition flex items-center gap-1"
+                            >
+                              🗑️ Clear All History
+                            </button>
+                          </div>
+                        )}
+
+                        {history.length === 0 ? (
+                          <div className={`p-6 text-center ${cardBg} rounded-xl border text-gray-500 text-xs`}>
+                            No reading history yet.
+                          </div>
+                        ) : (
+                          history.map((item, idx) => {
+                            const comic = comicsList.find((c) => c.id === item.comicId);
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => { if (comic) handleOpenComic(comic); }}
+                                className={`${cardBg} border hover:border-red-600/60 p-3 rounded-xl flex items-center justify-between cursor-pointer transition group`}
+                              >
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  {comic?.cover ? (
+                                    <img src={comic.cover} className="w-10 h-14 object-cover rounded-lg border border-neutral-800 flex-shrink-0" />
+                                  ) : (
+                                    <div className="w-10 h-14 bg-neutral-900 rounded-lg flex items-center justify-center text-xs flex-shrink-0">📖</div>
+                                  )}
+                                  <div className="min-w-0 pr-2">
+                                    <h4 className="text-xs font-bold text-white truncate">{comic ? comic.title : item.title}</h4>
+                                    <p className="text-[10px] text-gray-400">Page {item.page + 1} • {item.timestamp}</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className="text-xs font-bold text-red-500">Resume ▶</span>
+                                  <button
+                                    onClick={(e) => deleteHistoryItem(item.comicId, e)}
+                                    className="p-1.5 rounded-lg bg-neutral-900/80 hover:bg-red-950/60 text-gray-400 hover:text-red-400 text-xs transition"
+                                    title="Delete from history"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {/* Bookmarks SubTab */}
+                    {personalSubTab === 'bookmarks' && (
+                      <div className="space-y-2">
+                        {totalBookmarkCount > 0 && (
+                          <div className="flex justify-between items-center px-1 pb-1">
+                            <span className="text-[11px] text-gray-400 font-semibold">{totalBookmarkCount} Saved Notes</span>
+                            <button
+                              onClick={clearAllBookmarks}
+                              className="text-[11px] text-red-400 hover:text-red-300 font-bold transition flex items-center gap-1"
+                            >
+                              🗑️ Clear All Bookmarks
+                            </button>
+                          </div>
+                        )}
+
+                        {totalBookmarkCount === 0 ? (
+                          <div className={`p-6 text-center ${cardBg} rounded-xl border text-gray-500 text-xs`}>
+                            No bookmarks saved yet.
+                          </div>
+                        ) : (
+                          Object.entries(bookmarks).flatMap(([cId, list]) => {
+                            const c = comicsList.find((x) => x.id === cId);
+                            return list.map((b, i) => (
+                              <div
+                                key={`${cId}-${i}`}
+                                onClick={() => {
+                                  if (c) {
+                                    handleOpenComic(c);
+                                    setCurrentPage(b.page);
+                                  }
+                                }}
+                                className={`${cardBg} border hover:border-red-600/60 p-3 rounded-xl flex items-center justify-between cursor-pointer text-xs transition group`}
+                              >
+                                <div className="flex-1 min-w-0 pr-2">
+                                  <p className="font-bold text-white truncate">{c?.title || 'Unknown Issue'}</p>
+                                  <p className="text-[10px] text-red-400 font-semibold truncate">Page {b.page + 1}: "{b.note}"</p>
+                                  <p className="text-[9px] text-gray-500">{b.time}</p>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className="text-sm">🔖</span>
+                                  <button
+                                    onClick={(e) => deleteBookmarkItem(cId, i, e)}
+                                    className="p-1.5 rounded-lg bg-neutral-900/80 hover:bg-red-950/60 text-gray-400 hover:text-red-400 text-xs transition"
+                                    title="Delete bookmark"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            ));
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {/* Streak SubTab */}
+                    {personalSubTab === 'streak' && (
+                      <div className={`${cardBg} border rounded-2xl p-4 space-y-4`}>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-white">Daily Reading Log</span>
+                          <span className="text-[10px] text-red-400 font-semibold">
+                            {activeStreakCount} {activeStreakCount === 1 ? 'Day' : 'Days'} Continuous Streak
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1.5 text-center">
+                          {getWeekDays().map((d) => (
+                            <div key={d.dateKey} className={`p-2 rounded-xl border flex flex-col items-center gap-1 ${
+                              d.hasRead 
+                                ? 'bg-red-950/40 border-red-600/60 text-red-400' 
+                                : d.isToday 
+                                  ? 'bg-[#222222] border-red-500 text-white font-bold' 
+                                  : 'bg-[#181818] border-neutral-800 text-gray-500'
+                            }`}>
+                              <span className="text-[9px] font-semibold">{d.dayName}</span>
+                              <span className="text-[10px] opacity-75">{d.dateNumber}</span>
+                              <span className="text-xs">{d.hasRead ? '🔥' : '⚪'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Favorites Tab */}
+                {activeTab === 'favorites' && (
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-bold text-red-500 uppercase">Bookmarked Series</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {comicsList
+                        .filter((c) => favorites.includes(c.id))
+                        .map((comic) => (
+                          <div
+                            key={comic.id}
+                            onClick={() => handleOpenComic(comic)}
+                            className={`${cardBg} border rounded-xl overflow-hidden cursor-pointer flex flex-col`}
+                          >
+                            <img src={comic.cover} alt={comic.title} className="w-full aspect-[2/3] object-cover" />
+                            <div className="p-2.5 space-y-1">
+                              <p className="font-bold text-xs text-white truncate">{comic.title}</p>
+                              <div className="flex gap-1 pt-1 border-t border-neutral-800">
+                                <button
+                                  onClick={(e) => handleDownloadComic(comic, e)}
+                                  className="flex-1 py-1 rounded bg-neutral-900 text-gray-300 text-[10px] font-bold"
+                                >
+                                  ⬇️ Download
+                                </button>
+                                <button
+                                  onClick={(e) => handleDeleteComic(comic.id, e)}
+                                  className="px-2.5 py-1 rounded bg-red-950/40 text-red-400 text-[10px] font-bold"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Settings Tab */}
+                {activeTab === 'settings' && (
+                  <div className="space-y-4">
+                    {/* Display & OLED Config */}
+                    <div className={`${cardBg} border rounded-2xl p-4 space-y-4`}>
+                      <h3 className="text-xs font-bold text-white border-b border-neutral-800 pb-2">Display & OLED Config</h3>
+                      <div className="flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-semibold text-white">Pure OLED True Black (#000000)</p>
+                          <p className="text-[10px] text-gray-400">Shuts off AMOLED pixels globally for battery conservation</p>
+                        </div>
+                        <button 
+                          onClick={() => setOledPureBlack(!oledPureBlack)} 
+                          className={`w-10 h-5 rounded-full p-0.5 transition ${oledPureBlack ? 'bg-red-600' : 'bg-neutral-800'}`}
+                        >
+                          <div className={`w-4 h-4 bg-white rounded-full transition transform ${oledPureBlack ? 'translate-x-5' : ''}`} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Page Turn Effect Selection */}
+                    <div className={`${cardBg} border rounded-2xl p-4 space-y-3`}>
+                      <h3 className="text-xs font-bold text-white border-b border-neutral-800 pb-2">📖 Real 3D Hardware Swiper Transition</h3>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'cube', name: '3D Cube Rotation', icon: '🎲' },
+                          { id: 'flip', name: '3D Book Flip', icon: '📖' },
+                          { id: 'slide', name: 'Fluid Kinetic Slide', icon: '↔️' },
+                          { id: 'fade', name: 'Smooth Crossfade', icon: '✨' }
+                        ].map((effect) => (
+                          <button
+                            key={effect.id}
+                            onClick={() => setPageTurnEffect(effect.id)}
+                            className={`p-3 rounded-xl border text-left flex items-center gap-2.5 transition ${
+                              pageTurnEffect === effect.id
+                                ? 'bg-red-600/20 border-red-600 text-white shadow-md'
+                                : 'bg-[#181818] border-neutral-800 text-gray-400'
+                            }`}
+                          >
+                            <span className="text-lg">{effect.icon}</span>
+                            <div>
+                              <p className="text-xs font-bold text-white">{effect.name}</p>
+                              <p className="text-[9px] text-gray-400">Native Swiper.js</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Telegram Config & Remember Me */}
+                    <div className={`${cardBg} border border-red-900/40 rounded-2xl p-4 space-y-3 shadow-lg`}>
+                      <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl">📢</span>
+                          <div>
+                            <h3 className="text-xs font-bold text-white">Telegram Channel Drive</h3>
+                            <p className="text-[10px] text-gray-400">Syncs and streams comics to your Telegram channel</p>
+                          </div>
+                        </div>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            className="accent-red-600 rounded"
+                          />
+                          <span className="text-[10px] text-gray-300 font-bold">Remember Me</span>
+                        </label>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="text-[11px] font-bold text-gray-300">Telegram Bot Token</label>
+                          <input
+                            type="password"
+                            placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                            value={botToken}
+                            onChange={(e) => setBotToken(e.target.value)}
+                            className={`w-full mt-1 ${inputBg} border rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-red-600 font-mono`}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-gray-300">Telegram Channel ID / Username</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. @MyComicsChannel or -100123456789"
+                            value={channelId}
+                            onChange={(e) => setChannelId(e.target.value)}
+                            className={`w-full mt-1 ${inputBg} border rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-red-600 font-mono`}
+                          />
+                        </div>
+                      </div>
+
+                      {testSuccessMsg && (
+                        <div className="p-2.5 rounded-xl bg-green-950/40 border border-green-800/60 text-green-300 text-[11px] font-semibold">
+                          ✓ {testSuccessMsg}
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleTestConnection}
+                          disabled={isProcessing || !botToken || !channelId}
+                          className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-red-600/30 active:scale-95 transition"
+                        >
+                          {isProcessing ? 'Verifying...' : '🧪 Test & Sync Channel'}
+                        </button>
+                        <button
+                          onClick={() => handleSyncCloud(true)}
+                          disabled={isSyncing || !botToken || !channelId}
+                          className="px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 text-white font-bold text-xs border border-neutral-800 active:scale-95 transition"
+                        >
+                          🔄 Sync Now
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Reader Stage */
+              <div className="relative w-full h-screen bg-black flex flex-col select-none">
+                
+                {/* Top HUD Overlay */}
+                {showOverlay && (
+                  <div className="absolute top-0 left-0 right-0 z-40 bg-black/85 p-3 flex justify-between items-center backdrop-blur-sm">
+                    <button onClick={() => setIsReaderOpen(false)} className="px-2.5 py-1.5 bg-neutral-900 rounded-lg text-white text-xs font-bold">
+                      ✕ Close
+                    </button>
+                    <span className="text-xs font-bold text-white truncate max-w-[140px]">{selectedComic?.title}</span>
+                    <div className="flex gap-1.5">
+                      <button onClick={(e) => handleDownloadComic(selectedComic, e)} className="px-2 py-1 bg-neutral-900 rounded text-xs text-gray-300">
+                        ⬇️
+                      </button>
+                      <button onClick={() => setShowBookmarkModal(true)} className="px-2 py-1 bg-neutral-900 rounded text-xs text-gray-300">
+                        🔖
+                      </button>
+                      <button onClick={() => setShowFiltersModal(true)} className="px-2 py-1 bg-neutral-900 rounded text-xs text-gray-300">
+                        🎨
+                      </button>
+                      <button onClick={() => setReadingMode((m) => (m === 'single' ? 'webtoon' : 'single'))} className="px-2.5 py-1 bg-neutral-900 rounded text-xs text-red-400 font-bold capitalize">
+                        {readingMode}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Swiper Stage */}
+                <div className="flex-1 w-full flex items-center justify-center bg-black" style={{ minHeight: 0 }}>
+                  {readingMode === 'webtoon' ? (
+                    <div className="w-full max-w-lg space-y-2 py-14 overflow-y-auto max-h-screen bg-black">
+                      {selectedComic?.pages?.map((p, i) => (
+                        <img key={i} src={p} className="w-full h-auto rounded shadow-xl" style={{ filter: getFilterStyle() }} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="swiper bg-black">
+                      <div className="swiper-wrapper">
+                        {selectedComic?.pages?.map((pageSrc, idx) => (
+                          <div key={idx} className="swiper-slide bg-black">
+                            <img
+                              src={pageSrc}
+                              className="comic-img rounded-md shadow-2xl"
+                              style={{ filter: getFilterStyle() }}
+                              alt={`Page ${idx + 1}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom HUD Controls */}
+                {showOverlay && readingMode !== 'webtoon' && (
+                  <div className="absolute bottom-0 left-0 right-0 z-40 bg-black/85 p-3 space-y-2 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 max-w-sm mx-auto">
+                      <button
+                        onClick={() => swiperInstanceRef.current?.slidePrev()}
+                        disabled={currentPage === 0}
+                        className="px-3 py-1 bg-neutral-900 rounded text-white text-xs font-bold disabled:opacity-40"
+                      >
+                        ◀ Prev
+                      </button>
+                      <input
+                        type="range"
+                        min="0"
+                        max={(selectedComic?.pages?.length || 1) - 1}
+                        value={currentPage}
+                        onChange={(e) => {
+                          const target = Number(e.target.value);
+                          setCurrentPage(target);
+                          swiperInstanceRef.current?.slideTo(target);
+                        }}
+                        className="flex-1 accent-red-600"
+                      />
+                      <button
+                        onClick={() => swiperInstanceRef.current?.slideNext()}
+                        disabled={currentPage >= (selectedComic?.pages?.length || 1) - 1}
+                        className="px-3 py-1 bg-neutral-900 rounded text-white text-xs font-bold disabled:opacity-40"
+                      >
+                        Next ▶
+                      </button>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-400 max-w-sm mx-auto px-1">
+                      <span>Pg {currentPage + 1} / {selectedComic?.totalPages}</span>
+                      <span className="text-[10px] text-red-400 font-bold uppercase">{pageTurnEffect} effect active</span>
+                      <span>Total {selectedComic?.totalPages}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bookmark Modal */}
+                {showBookmarkModal && (
+                  <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+                    <div className="bg-[#141414] border border-neutral-800 p-4 rounded-xl max-w-xs w-full space-y-3">
+                      <p className="text-xs font-bold text-white">Bookmark Page {currentPage + 1}</p>
+                      <input
+                        type="text"
+                        value={currentNoteInput}
+                        onChange={(e) => setCurrentNoteInput(e.target.value)}
+                        placeholder="Add memo..."
+                        className="w-full bg-black border border-neutral-800 rounded px-2.5 py-1.5 text-xs text-white outline-none focus:border-red-600"
+                      />
+                      <div className="flex gap-2">
+                        <button onClick={() => setShowBookmarkModal(false)} className="flex-1 py-1.5 bg-neutral-800 text-xs text-gray-300 rounded-lg">Cancel</button>
+                        <button onClick={addBookmark} className="flex-1 py-1.5 bg-red-600 text-xs font-bold text-white rounded-lg">Save</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Filters Modal */}
+                {showFiltersModal && (
+                  <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+                    <div className="bg-[#141414] border border-neutral-800 p-4 rounded-xl max-w-xs w-full space-y-2">
+                      <div className="flex justify-between items-center text-xs font-bold text-white">
+                        <span>Atmosphere Tint</span>
+                        <button onClick={() => setShowFiltersModal(false)}>✕</button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 text-xs">
+                        {['normal', 'amber', 'crimson', 'manga-bw'].map((p) => (
+                          <button
+                            key={p}
+                            onClick={() => setColorPreset(p)}
+                            className={`py-1.5 rounded-lg capitalize border ${colorPreset === p ? 'bg-red-600 text-white border-red-500' : 'bg-neutral-900 border-neutral-800 text-gray-400'}`}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </main>
+
+          {!isReaderOpen && (
+            <nav className={`fixed bottom-0 left-0 right-0 z-40 ${navBg} border-t px-4 py-2 flex justify-around shadow-2xl transition-colors duration-200`}>
+              {[
+                { id: 'library', label: 'Library', icon: '📚' },
+                { id: 'personal', label: 'Personal', icon: '👤' },
+                { id: 'favorites', label: 'Saved', icon: '⭐' },
+                { id: 'settings', label: 'Settings', icon: '⚙️' }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex flex-col items-center text-[10px] ${activeTab === tab.id ? 'text-red-500 font-bold' : 'text-gray-400'}`}
+                >
+                  <span className="text-base">{tab.icon}</span>
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </nav>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
