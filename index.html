@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>CrimsonComics Reader - Smooth Engine</title>
-  
+
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
+
   <!-- React & ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -179,10 +179,10 @@
 
     const calculateConsecutiveStreak = (activityLog = []) => {
       if (!activityLog || activityLog.length === 0) return 0;
-      
+
       const uniqueDays = Array.from(new Set(activityLog)).sort().reverse();
       const todayKey = getTodayDateKey();
-      
+
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayKey = yesterday.toISOString().split('T')[0];
@@ -205,6 +205,29 @@
       }
       return streak;
     };
+
+    // NEW: generates a small, storage-safe JPEG thumbnail (data URL) from any
+    // image source (blob: URL or File). Used so covers survive page reloads —
+    // blob: URLs die when the tab reloads, data URLs don't.
+    const generateThumbnailDataUrl = (imageSrc, maxWidth = 240) =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxWidth / img.width);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          try {
+            resolve(canvas.toDataURL('image/jpeg', 0.72));
+          } catch (err) {
+            resolve(null);
+          }
+        };
+        img.onerror = () => resolve(null);
+        img.src = imageSrc;
+      });
 
     const TelegramChunkCloud = {
       async testConnection(botToken, channelId) {
@@ -271,7 +294,7 @@
           const chunkBlob = file.slice(start, end);
           const chunkFileName = `${file.name}.part${String(i + 1).padStart(3, '0')}`;
 
-          const caption = totalChunks > 1 
+          const caption = totalChunks > 1
             ? `📦 <b>Part ${i + 1}/${totalChunks}</b> of <code>${file.name}</code>`
             : `📚 <code>${file.name}</code>`;
 
@@ -308,7 +331,7 @@
           const chunk = sortedChunks[i];
           if (onProgress) onProgress(i + 1, sortedChunks.length, Math.round(((i + 1) / sortedChunks.length) * 100));
 
-          const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${chunk.fileId}`);
+          const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(chunk.fileId)}`);
           const fileInfo = await fileInfoRes.json();
           if (!fileInfo.ok) throw new Error(`Could not fetch part ${chunk.partNumber}`);
 
@@ -367,12 +390,12 @@
 
       async fetchChannelVault(botToken, channelId) {
         try {
-          const chatRes = await fetch(`https://api.telegram.org/bot${botToken}/getChat?chat_id=${channelId}`);
+          const chatRes = await fetch(`https://api.telegram.org/bot${botToken}/getChat?chat_id=${encodeURIComponent(channelId)}`);
           const chatData = await chatRes.json();
 
           if (chatData.ok && chatData.result?.pinned_message?.document) {
             const pinnedDoc = chatData.result.pinned_message.document;
-            const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${pinnedDoc.file_id}`);
+            const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(pinnedDoc.file_id)}`);
             const fileInfo = await fileInfoRes.json();
             if (fileInfo.ok) {
               const streamUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.result.file_path}`;
@@ -390,7 +413,7 @@
         try {
           const cachedPin = JSON.parse(localStorage.getItem(MANIFEST_PIN_KEY) || 'null');
           if (cachedPin?.fileId) {
-            const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${cachedPin.fileId}`);
+            const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(cachedPin.fileId)}`);
             const fileInfo = await fileInfoRes.json();
             if (fileInfo.ok) {
               const streamUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.result.file_path}`;
@@ -481,6 +504,20 @@
 
       const activeStreakCount = useMemo(() => calculateConsecutiveStreak(streakLog), [streakLog]);
 
+      // NEW: refs that always hold the latest profile/streak values.
+      // handleSyncCloud/pushManifestUpdate are useCallback-memoized on
+      // [botToken, channelId] only — without these refs they'd close over
+      // stale userName/userBio/streakLog and could push outdated profile
+      // data back over a newer pinned manifest.
+      const userNameRef = useRef(userName);
+      const userBioRef = useRef(userBio);
+      const userAvatarRef = useRef(userAvatar);
+      const streakLogRef = useRef(streakLog);
+      useEffect(() => { userNameRef.current = userName; }, [userName]);
+      useEffect(() => { userBioRef.current = userBio; }, [userBio]);
+      useEffect(() => { userAvatarRef.current = userAvatar; }, [userAvatar]);
+      useEffect(() => { streakLogRef.current = streakLog; }, [streakLog]);
+
       useEffect(() => {
         if (oledPureBlack) {
           document.documentElement.classList.add('oled-mode');
@@ -507,6 +544,8 @@
 
       useEffect(() => { localStorage.setItem('crimson_turn_effect', pageTurnEffect); }, [pageTurnEffect]);
       useEffect(() => {
+        // NOTE: `cover` is now always a data: URL (see generateThumbnailDataUrl),
+        // so it survives being written to localStorage and read back after reload.
         localStorage.setItem('crimson_chunked_comics', JSON.stringify(comicsList.map(c => ({
           id: c.id,
           title: c.title,
@@ -515,7 +554,8 @@
           totalPages: c.totalPages,
           chunks: c.chunks || [],
           fileSize: c.fileSize || 0,
-          cover: c.cover || null
+          cover: c.cover || null,
+          hasCloudBackup: !!(c.chunks && c.chunks.length > 0)
         }))));
       }, [comicsList]);
       useEffect(() => { localStorage.setItem('crimson_bookmarks', JSON.stringify(bookmarks)); }, [bookmarks]);
@@ -583,6 +623,41 @@
         });
       }, []);
 
+      // FIXED: now reads profile/streak from refs instead of closing over
+      // stale render-time state, and is memoized on [botToken, channelId]
+      // just like handleSyncCloud so both are recreated together.
+      const pushManifestUpdate = useCallback(async (updatedComics) => {
+        const token = botToken.trim();
+        const channel = channelId.trim();
+        if (!token || !channel) return;
+
+        try {
+          const manifestPayload = {
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            userProfile: {
+              name: userNameRef.current,
+              bio: userBioRef.current,
+              avatar: userAvatarRef.current
+            },
+            streakLog: streakLogRef.current,
+            comics: updatedComics.map(c => ({
+              id: c.id,
+              title: c.title,
+              author: c.author || 'Telegram Vault',
+              issue: c.issue || 1,
+              totalPages: c.totalPages || 0,
+              chunks: c.chunks || [],
+              fileSize: c.fileSize || 0,
+              cover: c.cover || null
+            }))
+          };
+          await TelegramChunkCloud.uploadPinnedManifest(token, channel, manifestPayload);
+        } catch (err) {
+          console.warn('Failed to publish cloud manifest:', err);
+        }
+      }, [botToken, channelId]);
+
       const handleSyncCloud = useCallback(async (manual = false) => {
         const token = botToken.trim();
         const channel = channelId.trim();
@@ -647,35 +722,7 @@
           setIsSyncing(false);
           setTimeout(() => setCloudStatusMsg(''), 3000);
         }
-      }, [botToken, channelId]);
-
-      const pushManifestUpdate = async (updatedComics) => {
-        const token = botToken.trim();
-        const channel = channelId.trim();
-        if (!token || !channel) return;
-
-        try {
-          const manifestPayload = {
-            version: 1,
-            updatedAt: new Date().toISOString(),
-            userProfile: { name: userName, bio: userBio, avatar: userAvatar },
-            streakLog: streakLog,
-            comics: updatedComics.map(c => ({
-              id: c.id,
-              title: c.title,
-              author: c.author || 'Telegram Vault',
-              issue: c.issue || 1,
-              totalPages: c.totalPages || 0,
-              chunks: c.chunks || [],
-              fileSize: c.fileSize || 0,
-              cover: c.cover || null
-            }))
-          };
-          await TelegramChunkCloud.uploadPinnedManifest(token, channel, manifestPayload);
-        } catch (err) {
-          console.warn('Failed to publish cloud manifest:', err);
-        }
-      };
+      }, [botToken, channelId, pushManifestUpdate]);
 
       useEffect(() => {
         if (botToken && channelId) {
@@ -683,14 +730,16 @@
         }
 
         const onFocus = () => {
-          if (botToken && channelId && !isReaderOpen) {
+          // FIXED: also skip auto-sync while an upload/processing is in
+          // flight, not just while the reader is open.
+          if (botToken && channelId && !isReaderOpen && !isProcessing) {
             handleSyncCloud(false);
           }
         };
 
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
-      }, [botToken, channelId, isReaderOpen, handleSyncCloud]);
+      }, [botToken, channelId, isReaderOpen, isProcessing, handleSyncCloud]);
 
       const themeBg = oledPureBlack ? 'bg-[#000000]' : 'bg-[#0a0a0a]';
       const cardBg = oledPureBlack ? 'bg-[#000000] border-neutral-900 shadow-none' : 'bg-[#141414] border-neutral-800';
@@ -873,8 +922,8 @@
 
         try {
           const file = files[0];
-          const isArchive = file.name.toLowerCase().endsWith('.cbz') || 
-                            file.name.toLowerCase().endsWith('.zip') || 
+          const isArchive = file.name.toLowerCase().endsWith('.cbz') ||
+                            file.name.toLowerCase().endsWith('.zip') ||
                             file.type.includes('zip');
 
           let pageUrls = [];
@@ -904,8 +953,9 @@
 
           const comicTitle = file.name.replace(/\.(cbz|zip)$/i, '');
           let chunkRecords = [];
+          const hasCloudConfig = !!(botToken && channelId);
 
-          if (botToken && channelId) {
+          if (hasCloudConfig) {
             setCloudStatusMsg('Starting Telegram Channel upload...');
             chunkRecords = await TelegramChunkCloud.uploadLargeFileInChunks(
               botToken.trim(),
@@ -918,12 +968,15 @@
             );
           }
 
+          // NEW: persist-safe cover thumbnail instead of a raw blob: URL.
+          const coverThumb = await generateThumbnailDataUrl(pageUrls[0]);
+
           const newComic = {
             id: `comic-${Date.now()}`,
             title: comicTitle,
             author: 'Channel Chunk File',
             issue: 1,
-            cover: pageUrls[0],
+            cover: coverThumb || pageUrls[0],
             totalPages: pageUrls.length,
             pages: pageUrls,
             originalFile: uploadFileBlob,
@@ -938,6 +991,14 @@
           setSelectedComic(newComic);
           setCurrentPage(0);
           setIsReaderOpen(true);
+
+          // NEW: tell the user plainly if this comic has no cloud backup,
+          // since without one its full content will be lost on refresh.
+          if (!hasCloudConfig) {
+            setTimeout(() => {
+              alert('Heads up: Telegram sync isn\'t configured, so this comic is only in this browser tab right now. If you refresh the page, you\'ll lose access to it. Set up Telegram Channel Drive in Settings to back it up.');
+            }, 300);
+          }
         } catch (err) {
           alert('Upload Failed:\n\n' + err.message);
         } finally {
@@ -992,6 +1053,11 @@
             setTimeout(() => setCloudStatusMsg(''), 3000);
             return;
           }
+
+          // NEW: explicit feedback instead of silently doing nothing.
+          alert(comic.chunks && comic.chunks.length > 0
+            ? 'This comic needs your Telegram Bot Token in Settings to download from the cloud.'
+            : 'No file is available for this comic — it has no cloud backup and its local copy was lost. Please re-upload it.');
         } catch (err) {
           alert('Download Failed:\n\n' + err.message);
         } finally {
@@ -1011,6 +1077,14 @@
         if (comic.chunks && comic.chunks.length > 0 && botToken && channelId) {
           setCloudStatusMsg('Deleting parts from Channel...');
           await TelegramChunkCloud.deleteChunksFromChannel(botToken.trim(), channelId.trim(), comic.chunks);
+        }
+
+        // NEW: release blob: URLs held by this comic to avoid leaking memory.
+        comic.pages?.forEach((p) => {
+          if (typeof p === 'string' && p.startsWith('blob:')) URL.revokeObjectURL(p);
+        });
+        if (typeof comic.cover === 'string' && comic.cover.startsWith('blob:')) {
+          URL.revokeObjectURL(comic.cover);
         }
 
         const remaining = comicsList.filter((c) => c.id !== comicId);
@@ -1051,9 +1125,10 @@
             );
 
             const pageUrls = await extractArchiveToPages(fullBlob);
+            const coverThumb = await generateThumbnailDataUrl(pageUrls[0]);
             const updatedComic = {
               ...comic,
-              cover: pageUrls[0],
+              cover: coverThumb || comic.cover || pageUrls[0],
               pages: pageUrls,
               originalFile: fullBlob
             };
@@ -1069,6 +1144,14 @@
             setCloudStatusMsg('');
             setUploadProgress(0);
           }
+          return;
+        }
+
+        // NEW: explicit feedback instead of a dead click.
+        if (comic.chunks && comic.chunks.length > 0 && !botToken) {
+          alert('This comic needs your Telegram Bot Token in Settings to stream from the cloud.');
+        } else {
+          alert('This comic has no cloud backup and its local data was lost (likely from a page refresh). Please re-upload it.');
         }
       };
 
@@ -1131,7 +1214,7 @@
 
       return (
         <div className={`min-h-screen ${themeBg} text-gray-100 flex flex-col font-sans select-none transition-colors duration-200`}>
-          
+
           {/* Top Navbar */}
           {!isReaderOpen && (
             <header className={`sticky top-0 z-40 ${navBg} border-b px-4 py-3 flex items-center justify-between shadow-lg`}>
@@ -1154,12 +1237,12 @@
                 </div>
                 <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold active:scale-95 transition shadow-md shadow-red-600/30">
                   <span>{isProcessing ? 'Processing...' : '⬆ Upload'}</span>
-                  <input 
-                    type="file" 
-                    multiple 
-                    accept="*/*" 
-                    onChange={handleFileUpload} 
-                    className="hidden" 
+                  <input
+                    type="file"
+                    multiple
+                    accept="*/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
                     disabled={isProcessing}
                   />
                 </label>
@@ -1217,12 +1300,12 @@
                         <div className="flex justify-center gap-2">
                           <label className="inline-flex cursor-pointer items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/20 active:scale-95 transition">
                             <span>Upload Comic Issue</span>
-                            <input 
-                              type="file" 
-                              multiple 
-                              accept="*/*" 
-                              onChange={handleFileUpload} 
-                              className="hidden" 
+                            <input
+                              type="file"
+                              multiple
+                              accept="*/*"
+                              onChange={handleFileUpload}
+                              className="hidden"
                               disabled={isProcessing}
                             />
                           </label>
@@ -1528,10 +1611,10 @@
                         <div className="grid grid-cols-7 gap-1.5 text-center">
                           {getWeekDays().map((d) => (
                             <div key={d.dateKey} className={`p-2 rounded-xl border flex flex-col items-center gap-1 ${
-                              d.hasRead 
-                                ? 'bg-red-950/40 border-red-600/60 text-red-400' 
-                                : d.isToday 
-                                  ? 'bg-[#222222] border-red-500 text-white font-bold' 
+                              d.hasRead
+                                ? 'bg-red-950/40 border-red-600/60 text-red-400'
+                                : d.isToday
+                                  ? 'bg-[#222222] border-red-500 text-white font-bold'
                                   : 'bg-[#181818] border-neutral-800 text-gray-500'
                             }`}>
                               <span className="text-[9px] font-semibold">{d.dayName}</span>
@@ -1593,8 +1676,8 @@
                           <p className="font-semibold text-white">Pure OLED True Black (#000000)</p>
                           <p className="text-[10px] text-gray-400">Shuts off AMOLED pixels globally for battery conservation</p>
                         </div>
-                        <button 
-                          onClick={() => setOledPureBlack(!oledPureBlack)} 
+                        <button
+                          onClick={() => setOledPureBlack(!oledPureBlack)}
                           className={`w-10 h-5 rounded-full p-0.5 transition ${oledPureBlack ? 'bg-red-600' : 'bg-neutral-800'}`}
                         >
                           <div className={`w-4 h-4 bg-white rounded-full transition transform ${oledPureBlack ? 'translate-x-5' : ''}`} />
@@ -1705,7 +1788,7 @@
             ) : (
               /* Reader Stage */
               <div className="relative w-full h-screen bg-black flex flex-col select-none">
-                
+
                 {/* Top HUD Overlay */}
                 {showOverlay && (
                   <div className="absolute top-0 left-0 right-0 z-40 bg-black/85 p-3 flex justify-between items-center backdrop-blur-sm">
