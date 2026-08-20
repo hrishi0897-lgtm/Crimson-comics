@@ -166,7 +166,7 @@
     }
   </style>
 </head>
-<body class="antialiased selection:bg-red-600 selection:text-white select-none overflow-hidden">
+<body class="antialiased selection:bg-red-600 selection:text-white select-none">
   <div id="root"></div>
 
   <script type="text/babel">
@@ -1130,7 +1130,7 @@
       ];
 
       return (
-        <div className={`min-h-screen ${themeBg} text-gray-100 flex flex-col font-sans select-none overflow-hidden transition-colors duration-200`}>
+        <div className={`min-h-screen ${themeBg} text-gray-100 flex flex-col font-sans select-none transition-colors duration-200`}>
           
           {/* Top Navbar */}
           {!isReaderOpen && (
@@ -1182,7 +1182,7 @@
             </div>
           )}
 
-          <main className="flex-1 pb-24 overflow-y-auto">
+          <main className="flex-1 pb-36 overflow-y-auto">
             {!isReaderOpen ? (
               <div className="p-4 space-y-4 max-w-4xl mx-auto">
                 <div className="flex gap-2 items-center">
