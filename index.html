@@ -22,7 +22,7 @@
   <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
 
-  <!-- Swiper.js Touch Engine -->
+  <!-- Swiper.js Touch Engine & Full Bundle (with 3D Effects) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
 
@@ -62,95 +62,146 @@
       -webkit-user-drag: none;
     }
 
-    /* Magic Navigation Bar */
+    /* Uiverse Animated Crimson Theme Arrow Button */
+    .arrow-loader-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #141414;
+      border: 1px solid #282828;
+      border-radius: 12px;
+      box-shadow: -2px -2px 5px rgba(255, 255, 255, 0.05),
+        4px 4px 8px rgba(0, 0, 0, 0.6),
+        inset -1px -1px 2px rgba(255, 255, 255, 0.08),
+        inset 2px 2px 4px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+      overflow: hidden;
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease;
+      user-select: none;
+    }
+    .arrow-loader-btn:active {
+      transform: scale(0.92);
+    }
+    .arrow-loader-btn:hover {
+      border-color: rgba(220, 38, 38, 0.6);
+    }
+
+    .arrow-svg {
+      filter: drop-shadow(0 0 4px rgba(220, 38, 38, 0.5));
+      transition: filter 0.3s ease;
+    }
+
+    .arrow-loader-btn:hover .arrow-svg {
+      filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.9));
+    }
+
+    .arrow-svg.spinning {
+      animation: arrowAnimate 0.7s linear infinite, arrowCrimsonHue 2s ease-in-out infinite;
+    }
+
+    @keyframes arrowAnimate {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes arrowCrimsonHue {
+      0%, 100% {
+        filter: drop-shadow(0 0 6px #dc2626) hue-rotate(0deg);
+      }
+      50% {
+        filter: drop-shadow(0 0 12px #ef4444) hue-rotate(25deg);
+      }
+    }
+
+    /* Perfectly Centered Floating Navigation Bar */
     .magic-nav {
       width: 320px;
-      height: 65px;
+      height: 64px;
       background: #141414;
       position: relative;
       display: flex;
       justify-content: center;
       align-items: center;
-      border-radius: 18px;
+      border-radius: 20px;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.06);
     }
     .magic-nav ul {
       display: flex;
       width: 280px;
+      height: 100%;
       position: relative;
+      margin: 0;
+      padding: 0;
+      align-items: center;
     }
     .magic-nav ul li {
       position: relative;
       list-style: none;
       width: 70px;
-      height: 65px;
-      z-index: 1;
+      height: 100%;
+      z-index: 2;
     }
     .magic-nav ul li button {
       position: relative;
       display: flex;
       justify-content: center;
       align-items: center;
-      flex-direction: column;
       width: 100%;
       height: 100%;
-      text-align: center;
       background: none;
       border: none;
       outline: none;
       cursor: pointer;
+      padding: 0;
+      margin: 0;
     }
     .magic-nav ul li button .icon {
       position: relative;
-      display: block;
-      line-height: 65px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
       font-size: 1.5em;
-      text-align: center;
-      transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      line-height: 1;
+      transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       color: #9ca3af;
     }
     .magic-nav ul li.active button .icon {
-      transform: translateY(-22px);
+      transform: translateY(-20px);
       color: #ffffff;
     }
     .magic-nav .indicator {
       position: absolute;
-      top: -24px;
+      top: -18px;
       width: 70px;
       height: 70px;
       border-radius: 50%;
-      border: 6px solid var(--clr);
-      background: var(--clr);
-      transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      background: transparent;
+      transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
     }
-    .magic-nav .indicator::before {
-      content: "";
-      position: absolute;
-      top: 14px;
-      left: -20px;
-      width: 18px;
-      height: 18px;
-      border-top-right-radius: 18px;
-      box-shadow: 0px -8px 0 0 var(--clr);
-    }
+    .magic-nav .indicator::before,
     .magic-nav .indicator::after {
-      content: "";
-      position: absolute;
-      top: 14px;
-      right: -20px;
-      width: 18px;
-      height: 18px;
-      border-top-left-radius: 18px;
-      box-shadow: 0px -8px 0 0 var(--clr);
+      display: none !important;
+      content: none !important;
     }
     .magic-nav .indicator span {
       position: absolute;
-      inset: 2px;
+      width: 54px;
+      height: 54px;
       background: var(--accent);
       border-radius: 50%;
-      box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+      border: 3px solid #141414;
+      box-shadow: 0 4px 18px rgba(220, 38, 38, 0.55);
     }
     .magic-nav ul li:nth-child(1).active ~ .indicator {
       transform: translateX(0px);
@@ -167,6 +218,17 @@
   </style>
 </head>
 <body class="antialiased selection:bg-red-600 selection:text-white select-none">
+  <!-- Shared Crimson Theme SVG Gradient Definition -->
+  <svg width="0" height="0" class="absolute">
+    <defs>
+      <linearGradient id="crimson-arrow-gradient" x1="100%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#ef4444" />
+        <stop offset="50%" stop-color="#dc2626" />
+        <stop offset="100%" stop-color="#991b1b" />
+      </linearGradient>
+    </defs>
+  </svg>
+
   <div id="root"></div>
 
   <script type="text/babel">
@@ -176,6 +238,16 @@
     const MANIFEST_PIN_KEY = 'crimson_cloud_vault_manifest';
 
     const getTodayDateKey = () => new Date().toISOString().split('T')[0];
+
+    const Skeleton = ({ animate = true, className = '' }) => (
+      <div className={`bg-neutral-800/80 rounded ${animate ? 'animate-pulse' : ''} ${className}`} />
+    );
+
+    const SkeletonReveal = ({ loading, skeleton, children, className = '' }) => (
+      <div className={`transition-opacity duration-300 ${className}`}>
+        {loading ? skeleton : children}
+      </div>
+    );
 
     const calculateConsecutiveStreak = (activityLog = []) => {
       if (!activityLog || activityLog.length === 0) return 0;
@@ -206,20 +278,18 @@
       return streak;
     };
 
-    // NEW: generates a small, storage-safe JPEG thumbnail (data URL) from any
-    // image source (blob: URL or File). Used so covers survive page reloads —
-    // blob: URLs die when the tab reloads, data URLs don't.
     const generateThumbnailDataUrl = (imageSrc, maxWidth = 240) =>
       new Promise((resolve) => {
         const img = new Image();
+        img.crossOrigin = "anonymous";
         img.onload = () => {
-          const scale = Math.min(1, maxWidth / img.width);
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.round(img.width * scale));
-          canvas.height = Math.max(1, Math.round(img.height * scale));
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           try {
+            const scale = Math.min(1, maxWidth / (img.width || 1));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round((img.width || maxWidth) * scale));
+            canvas.height = Math.max(1, Math.round((img.height || maxWidth) * scale));
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             resolve(canvas.toDataURL('image/jpeg', 0.72));
           } catch (err) {
             resolve(null);
@@ -432,6 +502,70 @@
       }
     };
 
+    // Crimson Theme Arrow Icon
+    const CrimsonArrowIcon = ({ isSyncing, className = 'w-5 h-5' }) => (
+      <svg
+        className={`arrow-svg ${isSyncing ? 'spinning' : ''} ${className}`}
+        viewBox="0 0 24 24"
+        fill="none"
+      >
+        <path
+          d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+          stroke="url(#crimson-arrow-gradient)"
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M3 3v5h5"
+          stroke="url(#crimson-arrow-gradient)"
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"
+          stroke="url(#crimson-arrow-gradient)"
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M16 21h5v-5"
+          stroke="url(#crimson-arrow-gradient)"
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+
+    const CrimsonRefreshButton = ({ isSyncing, onClick, label = '', className = '', size = 'md' }) => {
+      const isIconOnly = !label;
+      const sizeClasses = {
+        sm: isIconOnly ? 'w-8 h-8 p-1.5' : 'px-3 py-1.5 text-xs',
+        md: isIconOnly ? 'w-9 h-9 p-2' : 'px-3.5 py-2 text-xs',
+        lg: isIconOnly ? 'w-11 h-11 p-2.5' : 'px-4 py-2.5 text-sm'
+      };
+
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={isSyncing}
+          className={`arrow-loader-btn gap-2 font-bold ${sizeClasses[size]} ${isSyncing ? 'cursor-wait opacity-90' : ''} ${className}`}
+          title="Sync Cloud Vault"
+        >
+          <CrimsonArrowIcon isSyncing={isSyncing} className={isIconOnly ? 'w-full h-full' : 'w-4 h-4'} />
+          {label && (
+            <span className={`transition-colors ${isSyncing ? 'text-red-400' : 'text-gray-300 hover:text-white'}`}>
+              {isSyncing ? 'Syncing...' : label}
+            </span>
+          )}
+        </button>
+      );
+    };
+
     function App() {
       const [activeTab, setActiveTab] = useState('library');
       const [personalSubTab, setPersonalSubTab] = useState('history');
@@ -439,6 +573,12 @@
       const [isReaderOpen, setIsReaderOpen] = useState(false);
 
       const [currentDateTime, setCurrentDateTime] = useState(new Date());
+      const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+      useEffect(() => {
+        const timer = setTimeout(() => setIsInitialLoading(false), 900);
+        return () => clearTimeout(timer);
+      }, []);
 
       useEffect(() => {
         const clock = setInterval(() => setCurrentDateTime(new Date()), 1000);
@@ -504,11 +644,6 @@
 
       const activeStreakCount = useMemo(() => calculateConsecutiveStreak(streakLog), [streakLog]);
 
-      // NEW: refs that always hold the latest profile/streak values.
-      // handleSyncCloud/pushManifestUpdate are useCallback-memoized on
-      // [botToken, channelId] only — without these refs they'd close over
-      // stale userName/userBio/streakLog and could push outdated profile
-      // data back over a newer pinned manifest.
       const userNameRef = useRef(userName);
       const userBioRef = useRef(userBio);
       const userAvatarRef = useRef(userAvatar);
@@ -544,8 +679,6 @@
 
       useEffect(() => { localStorage.setItem('crimson_turn_effect', pageTurnEffect); }, [pageTurnEffect]);
       useEffect(() => {
-        // NOTE: `cover` is now always a data: URL (see generateThumbnailDataUrl),
-        // so it survives being written to localStorage and read back after reload.
         localStorage.setItem('crimson_chunked_comics', JSON.stringify(comicsList.map(c => ({
           id: c.id,
           title: c.title,
@@ -623,9 +756,6 @@
         });
       }, []);
 
-      // FIXED: now reads profile/streak from refs instead of closing over
-      // stale render-time state, and is memoized on [botToken, channelId]
-      // just like handleSyncCloud so both are recreated together.
       const pushManifestUpdate = useCallback(async (updatedComics) => {
         const token = botToken.trim();
         const channel = channelId.trim();
@@ -730,8 +860,6 @@
         }
 
         const onFocus = () => {
-          // FIXED: also skip auto-sync while an upload/processing is in
-          // flight, not just while the reader is open.
           if (botToken && channelId && !isReaderOpen && !isProcessing) {
             handleSyncCloud(false);
           }
@@ -968,7 +1096,6 @@
             );
           }
 
-          // NEW: persist-safe cover thumbnail instead of a raw blob: URL.
           const coverThumb = await generateThumbnailDataUrl(pageUrls[0]);
 
           const newComic = {
@@ -992,11 +1119,9 @@
           setCurrentPage(0);
           setIsReaderOpen(true);
 
-          // NEW: tell the user plainly if this comic has no cloud backup,
-          // since without one its full content will be lost on refresh.
           if (!hasCloudConfig) {
             setTimeout(() => {
-              alert('Heads up: Telegram sync isn\'t configured, so this comic is only in this browser tab right now. If you refresh the page, you\'ll lose access to it. Set up Telegram Channel Drive in Settings to back it up.');
+              alert("Heads up: Telegram sync isn't configured, so this comic is only in this browser tab right now. If you refresh the page, you'll lose access to it. Set up Telegram Channel Drive in Settings to back it up.");
             }, 300);
           }
         } catch (err) {
@@ -1054,7 +1179,6 @@
             return;
           }
 
-          // NEW: explicit feedback instead of silently doing nothing.
           alert(comic.chunks && comic.chunks.length > 0
             ? 'This comic needs your Telegram Bot Token in Settings to download from the cloud.'
             : 'No file is available for this comic — it has no cloud backup and its local copy was lost. Please re-upload it.');
@@ -1079,7 +1203,6 @@
           await TelegramChunkCloud.deleteChunksFromChannel(botToken.trim(), channelId.trim(), comic.chunks);
         }
 
-        // NEW: release blob: URLs held by this comic to avoid leaking memory.
         comic.pages?.forEach((p) => {
           if (typeof p === 'string' && p.startsWith('blob:')) URL.revokeObjectURL(p);
         });
@@ -1147,7 +1270,6 @@
           return;
         }
 
-        // NEW: explicit feedback instead of a dead click.
         if (comic.chunks && comic.chunks.length > 0 && !botToken) {
           alert('This comic needs your Telegram Bot Token in Settings to stream from the cloud.');
         } else {
@@ -1172,7 +1294,7 @@
             {
               page: currentPage,
               note: currentNoteInput || `Page ${currentPage + 1} bookmark`,
-              time: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              time: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }
           ]
         };
@@ -1222,20 +1344,18 @@
                 <span className="text-red-500 font-extrabold text-lg tracking-wider">⚡ CRIMSON COMICS</span>
               </div>
               <div className="flex items-center gap-2 sm:gap-3">
-                <button
+                {/* Crimson Theme Animated Arrow Refresh Button */}
+                <CrimsonRefreshButton
+                  isSyncing={isSyncing}
                   onClick={() => handleSyncCloud(true)}
-                  disabled={isSyncing}
-                  className={`p-2 rounded-lg bg-neutral-900 border border-neutral-800 text-gray-300 hover:text-white active:scale-95 transition ${isSyncing ? 'animate-spin text-red-500' : ''}`}
-                  title="Auto-Sync & Refresh Vault"
-                >
-                  🔄
-                </button>
+                  size="md"
+                />
 
                 <div className="flex items-center gap-2">
                   {renderAvatar('w-7 h-7 text-xs')}
                   <span className="text-xs text-gray-300 font-bold hidden sm:inline">{userName}</span>
                 </div>
-                <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold active:scale-95 transition shadow-md shadow-red-600/30">
+                <label className="cursor-pointer flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white text-xs font-bold active:scale-95 transition shadow-lg shadow-red-600/30 border border-red-500/40">
                   <span>{isProcessing ? 'Processing...' : '⬆ Upload'}</span>
                   <input
                     type="file"
@@ -1252,7 +1372,7 @@
 
           {/* Status Notification */}
           {cloudStatusMsg && (
-            <div className="bg-red-950/90 border-b border-red-800 px-4 py-2 space-y-1.5">
+            <div className="bg-red-950/90 border-b border-red-800 px-4 py-2 space-y-1.5 backdrop-blur-md">
               <p className="text-red-200 text-xs text-center font-medium">{cloudStatusMsg}</p>
               {uploadProgress > 0 && (
                 <div className="w-full max-w-sm mx-auto h-1.5 bg-red-950 rounded-full overflow-hidden border border-red-900/50">
@@ -1276,184 +1396,229 @@
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className={`flex-1 px-3.5 py-2.5 ${inputBg} border rounded-xl text-xs text-white outline-none focus:border-red-600`}
                   />
-                  <button
+                  {/* Search Bar Sync */}
+                  <CrimsonRefreshButton
+                    isSyncing={isSyncing}
                     onClick={() => handleSyncCloud(true)}
-                    className={`px-3.5 py-2.5 ${inputBg} border rounded-xl text-xs font-bold text-gray-300 hover:text-white flex items-center gap-1.5 active:scale-95 transition`}
-                  >
-                    <span>🔄</span>
-                    <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync Vault'}</span>
-                  </button>
+                    label="Sync Vault"
+                    size="md"
+                  />
                 </div>
 
-                {/* Library Tab */}
+                {/* Library Tab with SkeletonReveal */}
                 {activeTab === 'library' && (
-                  <div>
-                    {comicsList.length === 0 ? (
-                      <div className={`text-center py-16 ${cardBg} rounded-2xl border p-6 space-y-3`}>
-                        <div className="w-16 h-16 rounded-full bg-red-600/10 border border-red-600/30 flex items-center justify-center mx-auto text-3xl">
-                          📖
-                        </div>
-                        <h3 className="font-bold text-sm text-white">Your Comic Library is Empty</h3>
-                        <p className="text-xs text-gray-400 max-w-xs mx-auto">
-                          Upload `.cbz` or `.zip` issues or sync to fetch your cloud files from Telegram.
-                        </p>
-                        <div className="flex justify-center gap-2">
-                          <label className="inline-flex cursor-pointer items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/20 active:scale-95 transition">
-                            <span>Upload Comic Issue</span>
-                            <input
-                              type="file"
-                              multiple
-                              accept="*/*"
-                              onChange={handleFileUpload}
-                              className="hidden"
-                              disabled={isProcessing}
-                            />
-                          </label>
-                          <button
-                            onClick={() => handleSyncCloud(true)}
-                            className="px-4 py-2 rounded-xl bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 text-white text-xs font-bold active:scale-95 transition"
-                          >
-                            🔄 Sync Channel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
+                  <SkeletonReveal
+                    loading={isInitialLoading || isSyncing}
+                    skeleton={
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {filteredComics.map((comic) => (
-                          <div
-                            key={comic.id}
-                            onClick={() => handleOpenComic(comic)}
-                            className={`${cardBg} border hover:border-red-600 rounded-xl overflow-hidden cursor-pointer flex flex-col active:scale-95 transition`}
-                          >
-                            <div className={`relative aspect-[2/3] ${oledPureBlack ? 'bg-black' : 'bg-neutral-900'} overflow-hidden flex items-center justify-center`}>
-                              {comic.cover ? (
-                                <img src={comic.cover} alt={comic.title} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="text-center p-2 text-gray-500 text-xs">
-                                  <span className="text-2xl block mb-1">☁️</span>
-                                  <span>Tap to stream from channel</span>
-                                </div>
-                              )}
-                              <button
-                                onClick={(e) => toggleFavorite(comic.id, e)}
-                                className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 border border-white/10"
-                              >
-                                <span className={favorites.includes(comic.id) ? 'text-red-500' : 'text-gray-400'}>★</span>
-                              </button>
+                        {[1, 2, 3, 4, 5, 6].map((k) => (
+                          <div key={k} className={`${cardBg} border rounded-xl overflow-hidden p-2.5 space-y-2.5`}>
+                            <Skeleton className="w-full aspect-[2/3] rounded-lg" />
+                            <Skeleton className="h-3.5 w-3/4" />
+                            <div className="flex justify-between items-center pt-1">
+                              <Skeleton className="h-2.5 w-12" />
+                              <Skeleton className="h-2.5 w-10" />
                             </div>
-                            <div className="p-2.5 space-y-1.5">
-                              <p className="font-bold text-xs text-white truncate">{comic.title}</p>
-                              <div className="flex justify-between items-center text-[10px] text-gray-400">
-                                <span>{comic.totalPages || '?'} Pages</span>
-                                <span className="text-red-400 font-bold">
-                                  {comic.chunks && comic.chunks.length > 1 ? `${comic.chunks.length} Parts` : '1 Part'}
-                                </span>
-                              </div>
-                              <div className="flex gap-1.5 pt-1.5 border-t border-neutral-800/80">
-                                <button
-                                  onClick={(e) => handleDownloadComic(comic, e)}
-                                  className={`flex-1 py-1.5 rounded-lg ${oledPureBlack ? 'bg-neutral-950 border border-neutral-900' : 'bg-neutral-900'} hover:bg-neutral-800 text-gray-300 text-[10px] font-bold flex items-center justify-center gap-1 active:scale-95`}
-                                >
-                                  <span>⬇️</span> Download
-                                </button>
-                                <button
-                                  onClick={(e) => handleDeleteComic(comic.id, e)}
-                                  className="px-2.5 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 text-[10px] font-bold active:scale-95"
-                                >
-                                  🗑️
-                                </button>
-                              </div>
+                            <div className="flex gap-1.5 pt-1">
+                              <Skeleton className="h-6 flex-1 rounded-lg" />
+                              <Skeleton className="h-6 w-8 rounded-lg" />
                             </div>
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
+                    }
+                  >
+                    <div>
+                      {comicsList.length === 0 ? (
+                        <div className={`text-center py-16 ${cardBg} rounded-2xl border p-6 space-y-3`}>
+                          <div className="w-16 h-16 rounded-full bg-red-600/10 border border-red-600/30 flex items-center justify-center mx-auto text-3xl">
+                            📖
+                          </div>
+                          <h3 className="font-bold text-sm text-white">Your Comic Library is Empty</h3>
+                          <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                            Upload `.cbz` or `.zip` issues or sync to fetch your cloud files from Telegram.
+                          </p>
+                          <div className="flex justify-center gap-2">
+                            <label className="inline-flex cursor-pointer items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/20 active:scale-95 transition">
+                              <span>Upload Comic Issue</span>
+                              <input
+                                type="file"
+                                multiple
+                                accept="*/*"
+                                onChange={handleFileUpload}
+                                className="hidden"
+                                disabled={isProcessing}
+                              />
+                            </label>
+                            {/* Empty State Sync */}
+                            <CrimsonRefreshButton
+                              isSyncing={isSyncing}
+                              onClick={() => handleSyncCloud(true)}
+                              label="Sync Channel"
+                              size="md"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {filteredComics.map((comic) => (
+                            <div
+                              key={comic.id}
+                              onClick={() => handleOpenComic(comic)}
+                              className={`${cardBg} border hover:border-red-600 rounded-xl overflow-hidden cursor-pointer flex flex-col active:scale-95 transition`}
+                            >
+                              <div className={`relative aspect-[2/3] ${oledPureBlack ? 'bg-black' : 'bg-neutral-900'} overflow-hidden flex items-center justify-center`}>
+                                {comic.cover ? (
+                                  <img src={comic.cover} alt={comic.title} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="text-center p-2 text-gray-500 text-xs">
+                                    <span className="text-2xl block mb-1">☁️</span>
+                                    <span>Tap to stream from channel</span>
+                                  </div>
+                                )}
+                                <button
+                                  onClick={(e) => toggleFavorite(comic.id, e)}
+                                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 border border-white/10"
+                                >
+                                  <span className={favorites.includes(comic.id) ? 'text-red-500' : 'text-gray-400'}>★</span>
+                                </button>
+                              </div>
+                              <div className="p-2.5 space-y-1.5">
+                                <p className="font-bold text-xs text-white truncate">{comic.title}</p>
+                                <div className="flex justify-between items-center text-[10px] text-gray-400">
+                                  <span>{comic.totalPages || '?'} Pages</span>
+                                  <span className="text-red-400 font-bold">
+                                    {comic.chunks && comic.chunks.length > 1 ? `${comic.chunks.length} Parts` : '1 Part'}
+                                  </span>
+                                </div>
+                                <div className="flex gap-1.5 pt-1.5 border-t border-neutral-800/80">
+                                  <button
+                                    onClick={(e) => handleDownloadComic(comic, e)}
+                                    className={`flex-1 py-1.5 rounded-lg ${oledPureBlack ? 'bg-neutral-950 border border-neutral-900' : 'bg-neutral-900'} hover:bg-neutral-800 text-gray-300 text-[10px] font-bold flex items-center justify-center gap-1 active:scale-95`}
+                                  >
+                                    <span>⬇️</span> Download
+                                  </button>
+                                  <button
+                                    onClick={(e) => handleDeleteComic(comic.id, e)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 text-[10px] font-bold active:scale-95"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </SkeletonReveal>
                 )}
 
                 {/* Personal Space Tab */}
                 {activeTab === 'personal' && (
                   <div className="space-y-4">
-                    {/* User Profile Card */}
-                    <div className={`${cardBg} border rounded-2xl p-4 flex flex-col gap-3 shadow-lg`}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          {renderAvatar('w-12 h-12 text-2xl')}
-                          <div>
-                            <h3 className="text-sm font-extrabold text-white">{userName}</h3>
-                            <p className="text-[11px] text-gray-400">{userBio}</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => setIsEditingProfile(!isEditingProfile)}
-                          className="px-3 py-1 rounded-lg bg-neutral-900 border border-neutral-800 text-xs font-bold text-gray-300 hover:text-white"
-                        >
-                          {isEditingProfile ? 'Done' : '✏️ Edit Profile'}
-                        </button>
-                      </div>
-
-                      {isEditingProfile && (
-                        <div className="pt-3 border-t border-neutral-800 space-y-3">
-                          <div className="flex flex-col gap-2">
-                            <label className="text-[11px] font-bold text-gray-400">Profile Photo</label>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <label className="cursor-pointer px-3 py-1.5 rounded-xl bg-red-600/20 border border-red-500/50 hover:bg-red-600/30 text-red-400 text-xs font-bold transition flex items-center gap-1.5">
-                                <span>📷 Upload Photo</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={handleAvatarUpload}
-                                  className="hidden"
-                                />
-                              </label>
-                              <div className="flex gap-1">
-                                {['👤', '🦸', '🦹', '⚡', '🔥'].map((emoji) => (
-                                  <button
-                                    key={emoji}
-                                    onClick={() => setUserAvatar(emoji)}
-                                    className={`w-8 h-8 rounded-lg border text-sm flex items-center justify-center ${userAvatar === emoji ? 'border-red-500 bg-red-600/20' : 'border-neutral-800 bg-black'}`}
-                                  >
-                                    {emoji}
-                                  </button>
-                                ))}
+                    {/* User Profile Card with SkeletonReveal */}
+                    <SkeletonReveal
+                      loading={isInitialLoading}
+                      skeleton={
+                        <div className={`${cardBg} border rounded-2xl p-4 flex flex-col gap-3 shadow-lg`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Skeleton className="w-12 h-12 rounded-full" />
+                              <div className="space-y-1.5">
+                                <Skeleton className="h-4 w-32" />
+                                <Skeleton className="h-3 w-48" />
                               </div>
                             </div>
+                            <Skeleton className="h-7 w-20 rounded-lg" />
                           </div>
-
-                          <div className="space-y-1">
-                            <label className="text-[11px] font-bold text-gray-400">Display Name</label>
-                            <input
-                              type="text"
-                              value={userName}
-                              onChange={(e) => setUserName(e.target.value)}
-                              placeholder="Your Name"
-                              className={`w-full px-2.5 py-1.5 ${inputBg} border rounded-lg text-xs text-white outline-none focus:border-red-600`}
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <label className="text-[11px] font-bold text-gray-400">Bio / Status</label>
-                            <input
-                              type="text"
-                              value={userBio}
-                              onChange={(e) => setUserBio(e.target.value)}
-                              placeholder="Your Tagline..."
-                              className={`w-full px-2.5 py-1.5 ${inputBg} border rounded-lg text-xs text-white outline-none focus:border-red-600`}
-                            />
+                          <div className="flex justify-between items-center pt-2 border-t border-neutral-800">
+                            <Skeleton className="h-4 w-28" />
+                            <Skeleton className="h-3 w-36" />
                           </div>
                         </div>
-                      )}
-
-                      <div className="flex justify-between items-center pt-2 border-t border-neutral-800 text-xs">
-                        <div className="flex items-center gap-1.5 text-red-500 font-extrabold text-sm">
-                          <span>{activeStreakCount > 0 ? '🔥' : '❄️'}</span>
-                          <span>{activeStreakCount} {activeStreakCount === 1 ? 'Day' : 'Days'} Streak</span>
+                      }
+                    >
+                      <div className={`${cardBg} border rounded-2xl p-4 flex flex-col gap-3 shadow-lg`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            {renderAvatar('w-12 h-12 text-2xl')}
+                            <div>
+                              <h3 className="text-sm font-extrabold text-white">{userName}</h3>
+                              <p className="text-[11px] text-gray-400">{userBio}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setIsEditingProfile(!isEditingProfile)}
+                            className="px-3 py-1 rounded-lg bg-neutral-900 border border-neutral-800 text-xs font-bold text-gray-300 hover:text-white"
+                          >
+                            {isEditingProfile ? 'Done' : '✏️ Edit Profile'}
+                          </button>
                         </div>
-                        <span className="text-[10px] text-gray-400">
-                          {currentDateTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} • {currentDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+
+                        {isEditingProfile && (
+                          <div className="pt-3 border-t border-neutral-800 space-y-3">
+                            <div className="flex flex-col gap-2">
+                              <label className="text-[11px] font-bold text-gray-400">Profile Photo</label>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <label className="cursor-pointer px-3 py-1.5 rounded-xl bg-red-600/20 border border-red-500/50 hover:bg-red-600/30 text-red-400 text-xs font-bold transition flex items-center gap-1.5">
+                                  <span>📷 Upload Photo</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleAvatarUpload}
+                                    className="hidden"
+                                  />
+                                </label>
+                                <div className="flex gap-1">
+                                  {['👤', '🦸', '🦹', '⚡', '🔥'].map((emoji) => (
+                                    <button
+                                      key={emoji}
+                                      onClick={() => setUserAvatar(emoji)}
+                                      className={`w-8 h-8 rounded-lg border text-sm flex items-center justify-center ${userAvatar === emoji ? 'border-red-500 bg-red-600/20' : 'border-neutral-800 bg-black'}`}
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-gray-400">Display Name</label>
+                              <input
+                                type="text"
+                                value={userName}
+                                onChange={(e) => setUserName(e.target.value)}
+                                placeholder="Your Name"
+                                className={`w-full px-2.5 py-1.5 ${inputBg} border rounded-lg text-xs text-white outline-none focus:border-red-600`}
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-gray-400">Bio / Status</label>
+                              <input
+                                type="text"
+                                value={userBio}
+                                onChange={(e) => setUserBio(e.target.value)}
+                                placeholder="Your Tagline..."
+                                className={`w-full px-2.5 py-1.5 ${inputBg} border rounded-lg text-xs text-white outline-none focus:border-red-600`}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center pt-2 border-t border-neutral-800 text-xs">
+                          <div className="flex items-center gap-1.5 text-red-500 font-extrabold text-sm">
+                            <span>{activeStreakCount > 0 ? '🔥' : '❄️'}</span>
+                            <span>{activeStreakCount} {activeStreakCount === 1 ? 'Day' : 'Days'} Streak</span>
+                          </div>
+                          <span className="text-[10px] text-gray-400">
+                            {currentDateTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + currentDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    </SkeletonReveal>
 
                     <div className={`grid grid-cols-3 gap-2 ${cardBg} border rounded-2xl p-3 text-center`}>
                       <div>
@@ -1773,13 +1938,13 @@
                         >
                           {isProcessing ? 'Verifying...' : '🧪 Test & Sync Channel'}
                         </button>
-                        <button
+                        {/* Settings Sync */}
+                        <CrimsonRefreshButton
+                          isSyncing={isSyncing}
                           onClick={() => handleSyncCloud(true)}
-                          disabled={isSyncing || !botToken || !channelId}
-                          className="px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 text-white font-bold text-xs border border-neutral-800 active:scale-95 transition"
-                        >
-                          🔄 Sync Now
-                        </button>
+                          label="Sync Now"
+                          size="md"
+                        />
                       </div>
                     </div>
                   </div>
@@ -1924,9 +2089,9 @@
             )}
           </main>
 
-          {/* Magic Curved Indicator Navigation Bar */}
+          {/* Centered Floating Navigation Bar */}
           {!isReaderOpen && (
-            <div className="fixed bottom-3 left-0 right-0 z-40 flex justify-center items-center pointer-events-auto">
+            <div className="fixed bottom-4 left-0 right-0 z-40 flex justify-center items-center pointer-events-auto">
               <nav className="magic-nav">
                 <ul>
                   {navItems.map((item) => (
@@ -1936,7 +2101,7 @@
                     >
                       <button onClick={() => setActiveTab(item.id)}>
                         <span className="icon">
-                          <ion-icon name={item.icon}></ion-icon>
+                          {React.createElement('ion-icon', { name: item.icon })}
                         </span>
                       </button>
                     </li>
