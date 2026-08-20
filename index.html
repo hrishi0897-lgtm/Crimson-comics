@@ -575,6 +575,8 @@
       const [currentDateTime, setCurrentDateTime] = useState(new Date());
       const [isInitialLoading, setIsInitialLoading] = useState(true);
 
+      const uploadLockRef = useRef(false);
+
       useEffect(() => {
         const timer = setTimeout(() => setIsInitialLoading(false), 900);
         return () => clearTimeout(timer);
@@ -789,6 +791,8 @@
       }, [botToken, channelId]);
 
       const handleSyncCloud = useCallback(async (manual = false) => {
+        if (uploadLockRef.current) return;
+
         const token = botToken.trim();
         const channel = channelId.trim();
         if (!token || !channel) {
@@ -858,16 +862,7 @@
         if (botToken && channelId) {
           handleSyncCloud(false);
         }
-
-        const onFocus = () => {
-          if (botToken && channelId && !isReaderOpen && !isProcessing) {
-            handleSyncCloud(false);
-          }
-        };
-
-        window.addEventListener('focus', onFocus);
-        return () => window.removeEventListener('focus', onFocus);
-      }, [botToken, channelId, isReaderOpen, isProcessing, handleSyncCloud]);
+      }, [botToken, channelId, handleSyncCloud]);
 
       const themeBg = oledPureBlack ? 'bg-[#000000]' : 'bg-[#0a0a0a]';
       const cardBg = oledPureBlack ? 'bg-[#000000] border-neutral-900 shadow-none' : 'bg-[#141414] border-neutral-800';
@@ -1044,6 +1039,7 @@
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
 
+        uploadLockRef.current = true;
         setIsProcessing(true);
         setUploadProgress(0);
         setCloudStatusMsg('Reading comic file...');
@@ -1127,6 +1123,7 @@
         } catch (err) {
           alert('Upload Failed:\n\n' + err.message);
         } finally {
+          uploadLockRef.current = false;
           setIsProcessing(false);
           setCloudStatusMsg('');
           setUploadProgress(0);
@@ -1614,7 +1611,7 @@
                             <span>{activeStreakCount} {activeStreakCount === 1 ? 'Day' : 'Days'} Streak</span>
                           </div>
                           <span className="text-[10px] text-gray-400">
-                            {currentDateTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + currentDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {currentDateTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} • {currentDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
                       </div>
